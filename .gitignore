@@ -7,3 +7,5 @@ dist/
 *.swp
 .DS_Store
 .claude/
+logs/
+workspace/
