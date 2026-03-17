@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm-run-all --parallel dev:agent dev:vite dev:hono",
+    "dev": "npm-run-all --parallel dev:agent dev:editor dev:vite dev:hono",
     "dev:all": "npm-run-all --parallel dev:*",
+    "dev:editor": "npm run dev --prefix editor",
     "dev:agent": "cd container/agent-server && npx tsx watch src/index.ts",
     "dev:opencode": "cd workspace && opencode serve :4096",
     "dev:vite": "npm run dev --prefix workspace",
