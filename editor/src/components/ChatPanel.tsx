@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import type { WSMessage } from "../hooks/useWebSocket";
+import type { ElementContext } from "./PreviewPanel";
 
 type ChatMessage = {
   role: "user" | "assistant" | "status";
@@ -10,9 +11,17 @@ type Props = {
   connected: boolean;
   messages: WSMessage[];
   onSend: (msg: WSMessage) => void;
+  selectedElement: ElementContext | null;
+  onClearElement: () => void;
 };
 
-export default function ChatPanel({ connected, messages, onSend }: Props) {
+export default function ChatPanel({
+  connected,
+  messages,
+  onSend,
+  selectedElement,
+  onClearElement,
+}: Props) {
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,9 +58,18 @@ export default function ChatPanel({ connected, messages, onSend }: Props) {
     e.preventDefault();
     if (!input.trim() || !connected) return;
 
-    setChat((prev) => [...prev, { role: "user", content: input }]);
-    onSend({ type: "chat", message: input });
+    const displayMsg = selectedElement
+      ? `[${selectedElement.componentTree[0]?.name ?? selectedElement.tag}] ${input}`
+      : input;
+
+    setChat((prev) => [...prev, { role: "user", content: displayMsg }]);
+    onSend({
+      type: "chat",
+      message: input,
+      elementContext: selectedElement ?? undefined,
+    });
     setInput("");
+    onClearElement();
   }
 
   return (
@@ -69,6 +87,8 @@ export default function ChatPanel({ connected, messages, onSend }: Props) {
         {chat.length === 0 && (
           <p className="text-gray-500 text-sm">
             チャットで指示を送ると、AIがサイトを編集します。
+            <br />
+            Inspect ボタンで要素を選択してから指示すると、ピンポイントで編集できます。
           </p>
         )}
         {chat.map((msg, i) => (
@@ -91,6 +111,26 @@ export default function ChatPanel({ connected, messages, onSend }: Props) {
         )}
       </div>
 
+      {/* 選択中の要素表示 */}
+      {selectedElement && (
+        <div className="mx-3 mb-1 px-3 py-2 bg-orange-500/20 border border-orange-500/40 rounded-lg text-xs text-orange-200 flex items-center gap-2">
+          <span className="flex-1">
+            {selectedElement.componentTree[0]?.name ?? selectedElement.tag}
+            {selectedElement.text && (
+              <span className="text-orange-300/60 ml-1">
+                "{selectedElement.text.slice(0, 30)}"
+              </span>
+            )}
+          </span>
+          <button
+            onClick={onClearElement}
+            className="text-orange-300 hover:text-orange-100"
+          >
+            x
+          </button>
+        </div>
+      )}
+
       {/* 入力フォーム */}
       <form onSubmit={handleSubmit} className="p-3 border-t border-gray-700">
         <div className="flex gap-2">
@@ -98,7 +138,11 @@ export default function ChatPanel({ connected, messages, onSend }: Props) {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="指示を入力..."
+            placeholder={
+              selectedElement
+                ? `${selectedElement.componentTree[0]?.name ?? selectedElement.tag} への指示...`
+                : "指示を入力..."
+            }
             disabled={!connected}
             className="flex-1 bg-gray-800 text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 placeholder-gray-500"
           />
