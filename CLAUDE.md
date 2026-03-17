@@ -25,6 +25,7 @@ ai-web-builder/
 ├── editor/                エディター UI (チャット + Iframe シェル)
 ├── container/             コンテナ内ランタイム
 │   ├── agent-server/      WebSocket 受付 → opencode serve 橋渡し
+│   ├── log-reader-mcp/    ログ横断読み取り MCP サーバー
 │   └── scaffold/          ゲストサイトの初期ファイル一式
 ├── docs/                  設計ドキュメント
 ├── Dockerfile             コンテナイメージ定義
@@ -62,10 +63,15 @@ logs/
 
 ## AI フィードバックループ (必須)
 
-OpenCode は編集後に Playwright MCP で視覚検証を行う:
+OpenCode は編集後に MCP サーバー経由で視覚検証 + ログ確認を行う:
 1. 静的解析 (LSP / Lint)
-2. スクリーンショット取得 → LLM が視覚確認
-3. ブラウザコンソール・ログファイル確認 → ランタイムエラー検知
+2. Playwright MCP: スクリーンショット取得 → LLM が視覚確認
+3. Playwright MCP: ブラウザコンソール → JS エラー検知
+4. log-reader MCP: 全プロセスログ横断検索 → ランタイムエラー検知
+
+OpenCode MCP 構成 (opencode.json):
+- `playwright`: headless Chromium で localhost:5173 を監視
+- `log-reader`: logs/ ディレクトリの全ログを横断読み取り (read_log / search_log / list_logs)
 
 ## シークレット
 
