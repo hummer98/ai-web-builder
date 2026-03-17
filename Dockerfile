@@ -1,28 +1,48 @@
 FROM node:22-slim
 
-# OpenCode CLI
+# システム依存 + OpenCode CLI
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 RUN npm i -g opencode tsx npm-run-all2
-
-# Playwright headless Chromium (Phase 4 で使用)
-# RUN npx playwright install --with-deps chromium
 
 WORKDIR /app
 
-# ビルダーツール本体の依存
-COPY package.json ./
-COPY container/agent-server/package.json container/agent-server/
-RUN npm install --workspaces=false && cd container/agent-server && npm install
+# ルート依存
+COPY package.json package-lock.json ./
+RUN npm install
 
-# Scaffold の依存を事前インストール
-COPY container/scaffold/ /app/container/scaffold/
-RUN cd /app/container/scaffold && npm install
+# Agent Server 依存
+COPY container/agent-server/package.json container/agent-server/package-lock.json container/agent-server/
+RUN cd container/agent-server && npm install
 
-# ソースコードをコピー
-COPY . .
+# Log Reader MCP 依存
+COPY container/log-reader-mcp/package.json container/log-reader-mcp/package-lock.json container/log-reader-mcp/
+RUN cd container/log-reader-mcp && npm install
 
-EXPOSE 8080 4096 5173 3000
+# Editor UI ビルド
+COPY editor/package.json editor/package-lock.json editor/
+RUN cd editor && npm install
+COPY editor/ editor/
+RUN cd editor && npx vite build
+
+# Scaffold の依存を事前インストール（新規サイト作成時にコピーされる）
+COPY container/scaffold/ container/scaffold/
+RUN cd container/scaffold && npm install
+
+# 残りのソースコード
+COPY container/agent-server/ container/agent-server/
+COPY container/log-reader-mcp/ container/log-reader-mcp/
+
+# ログディレクトリ
+RUN mkdir -p /app/logs
+
+EXPOSE 8080
 
 # workspace は Fly Volume にマウントされる (/data/workspace)
 ENV WORKSPACE_DIR=/data/workspace
+ENV NODE_ENV=production
 
-CMD ["npm", "run", "dev"]
+# 起動スクリプト
+COPY container/start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+CMD ["/app/start.sh"]

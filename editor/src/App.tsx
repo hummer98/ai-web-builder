@@ -4,7 +4,9 @@ import PreviewPanel from "./components/PreviewPanel";
 import type { ElementContext } from "./components/PreviewPanel";
 import { useWebSocket } from "./hooks/useWebSocket";
 
-const WS_URL = `ws://${window.location.hostname}:8080/ws`;
+const WS_URL = import.meta.env.DEV
+  ? `ws://${window.location.hostname}:8080/ws`
+  : `wss://${window.location.host}/ws`;
 
 export default function App() {
   const { connected, messages, send } = useWebSocket(WS_URL);

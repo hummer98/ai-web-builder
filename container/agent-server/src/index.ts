@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import { createLogger } from "./logger.js";
@@ -9,9 +10,28 @@ const app = new Hono();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
+const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));
+
+// ゲストサイトプレビューへのプロキシ (/preview/*)
+app.all("/preview/*", async (c) => {
+  const path = c.req.path.replace("/preview", "") || "/";
+  const url = `${VITE_URL}${path}`;
+  try {
+    const resp = await fetch(url, {
+      method: c.req.method,
+      headers: c.req.raw.headers,
+    });
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: resp.headers,
+    });
+  } catch {
+    return c.text("Preview server not available", 502);
+  }
+});
 
 // WebSocket endpoint
 app.get(
@@ -152,6 +172,16 @@ function extractText(result: unknown): string {
       .join("\n");
   }
   return String(result);
+}
+
+// エディター UI の静的ファイル配信（本番時: ビルド済み dist/）
+if (process.env.NODE_ENV === "production") {
+  app.use(
+    "/*",
+    serveStatic({ root: "../../editor/dist" })
+  );
+  // SPA フォールバック
+  app.get("/*", serveStatic({ root: "../../editor/dist", path: "index.html" }));
 }
 
 const port = 8080;

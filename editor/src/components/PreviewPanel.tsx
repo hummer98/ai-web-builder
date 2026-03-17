@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const PREVIEW_URL = "http://localhost:5173";
+const PREVIEW_URL =
+  import.meta.env.DEV
+    ? "http://localhost:5173"
+    : `${window.location.origin}/preview/`;
 
 const SIZES = [
   { label: "Desktop", width: "100%" },
