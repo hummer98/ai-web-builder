@@ -1,8 +1,11 @@
 FROM node:22-slim
 
-# システム依存 + OpenCode CLI
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-RUN npm i -g opencode tsx npm-run-all2
+# システム依存
+RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
+RUN npm i -g tsx npm-run-all2
+
+# OpenCode CLI (Go バイナリ)
+RUN curl -fsSL https://opencode.ai/install | bash && mv /root/.local/bin/opencode /usr/local/bin/opencode
 
 WORKDIR /app
 
