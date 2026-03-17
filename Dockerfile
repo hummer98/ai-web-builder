@@ -5,7 +5,8 @@ RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
 RUN npm i -g tsx npm-run-all2
 
 # OpenCode CLI (Go バイナリ)
-RUN curl -fsSL https://opencode.ai/install | bash && mv /root/.local/bin/opencode /usr/local/bin/opencode
+RUN curl -fsSL https://opencode.ai/install | bash && \
+    find /root -name opencode -type f 2>/dev/null | head -1 | xargs -I{} cp {} /usr/local/bin/opencode
 
 WORKDIR /app
 
