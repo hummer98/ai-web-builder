@@ -185,8 +185,8 @@ if (process.env.NODE_ENV === "production") {
 }
 
 const port = 8080;
-const server = serve({ fetch: app.fetch, port }, () => {
-  log.info(`Agent Server started on :${port}`);
+const server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
+  log.info(`Agent Server started on 0.0.0.0:${port}`);
 });
 
 injectWebSocket(server);
