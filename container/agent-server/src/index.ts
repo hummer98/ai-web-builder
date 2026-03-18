@@ -4,6 +4,9 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event } from "@opencode-ai/sdk";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, extname } from "node:path";
+import { randomUUID } from "node:crypto";
 import { autoCommit, autoPush, undoLastCommit } from "./git-ops.js";
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo } from "./site-init.js";
@@ -16,6 +19,8 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
 const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
 const SITE_NAME = process.env.SITE_DOMAIN ?? "guest-site";
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
+const MAX_UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB
 
 // 本番環境では Cloudflare Access JWT が必須（/health は除外）
 app.use("*", async (c, next) => {
@@ -34,6 +39,41 @@ app.use("*", async (c, next) => {
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));
+
+// 画像アップロード
+app.post("/api/upload", async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const file = body["file"];
+    if (!(file instanceof File)) {
+      return c.json({ error: "No file provided" }, 400);
+    }
+
+    // ファイルサイズチェック
+    if (file.size > MAX_UPLOAD_SIZE) {
+      return c.json({ error: "File too large (max 5MB)" }, 413);
+    }
+
+    // 画像 MIME タイプチェック
+    if (!file.type.startsWith("image/")) {
+      return c.json({ error: "Only image files are allowed" }, 400);
+    }
+
+    const ext = extname(file.name) || ".png";
+    const filename = `${randomUUID()}${ext}`;
+    const uploadsDir = join(WORKSPACE_DIR, "public", "uploads");
+    mkdirSync(uploadsDir, { recursive: true });
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    writeFileSync(join(uploadsDir, filename), buffer);
+
+    log.info("File uploaded", { filename, size: file.size });
+    return c.json({ url: `/uploads/${filename}` });
+  } catch (err) {
+    log.error("Upload failed", { error: String(err) });
+    return c.json({ error: "Upload failed" }, 500);
+  }
+});
 
 // ゲストサイトプレビューへのプロキシ (/preview/*)
 // Vite の base='/preview/' に合わせてパスをそのまま転送する
@@ -294,6 +334,7 @@ function truncateForCommit(text: string): string {
  */
 function buildPrompt(data: {
   message: string;
+  imageUrl?: string;
   elementContext?: {
     ocId?: string;
     tag?: string;
@@ -317,6 +358,13 @@ function buildPrompt(data: {
       );
       parts.push(`- ファイル: ${ctx.componentTree[0].file}`);
     }
+    parts.push("");
+  }
+
+  if (data.imageUrl) {
+    parts.push("## 添付画像");
+    parts.push(`- URL: ${data.imageUrl}`);
+    parts.push("この画像をサイトで使用してください。");
     parts.push("");
   }
 

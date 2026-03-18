@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { WSMessage } from "../hooks/useWebSocket";
 import type { ElementContext } from "./PreviewPanel";
 
@@ -29,8 +29,13 @@ export default function ChatPanel({
   const [statusText, setStatusText] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const processedRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   // WS メッセージをチャット履歴に変換
   useEffect(() => {
@@ -137,21 +142,108 @@ export default function ChatPanel({
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [chat, loading, streaming]);
 
-  function handleSubmit(e: React.FormEvent) {
+  // 画像選択処理
+  function handleImageSelect(file: File) {
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("画像サイズは5MB以下にしてください");
+      return;
+    }
+    setPendingImage(file);
+    const url = URL.createObjectURL(file);
+    setImagePreview(url);
+  }
+
+  function clearImage() {
+    setPendingImage(null);
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+      setImagePreview(null);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  // ドラッグ&ドロップ
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    if (!input.trim() || !connected) return;
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleImageSelect(file);
+  }, []);
+
+  async function uploadImage(file: File): Promise<string | null> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Upload failed");
+      }
+      const data = await res.json();
+      return data.url;
+    } catch (err) {
+      console.error("Upload error:", err);
+      return null;
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if ((!input.trim() && !pendingImage) || !connected) return;
 
     const displayMsg = selectedElement
       ? `[${selectedElement.componentTree[0]?.name ?? selectedElement.tag}] ${input}`
       : input;
 
-    setChat((prev) => [...prev, { role: "user", content: displayMsg }]);
+    // 画像がある場合のプレビュー付きメッセージ表示
+    const userContent = pendingImage
+      ? `${displayMsg}\n[画像添付: ${pendingImage.name}]`
+      : displayMsg;
+
+    setChat((prev) => [...prev, { role: "user", content: userContent }]);
+
+    let imageUrl: string | undefined;
+    if (pendingImage) {
+      setUploading(true);
+      const url = await uploadImage(pendingImage);
+      setUploading(false);
+      if (url) {
+        imageUrl = url;
+      } else {
+        setChat((prev) => [
+          ...prev,
+          { role: "assistant", content: "Error: 画像のアップロードに失敗しました" },
+        ]);
+        clearImage();
+        return;
+      }
+    }
+
     onSend({
       type: "chat",
-      message: input,
+      message: input || "この画像をサイトに使ってください",
+      imageUrl,
       elementContext: selectedElement ?? undefined,
     });
     setInput("");
+    clearImage();
     onClearElement();
   }
 
@@ -204,12 +296,20 @@ export default function ChatPanel({
       </div>
 
       {/* メッセージ一覧 */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div
+        ref={scrollRef}
+        className={`flex-1 overflow-y-auto p-4 space-y-3 ${dragOver ? "ring-2 ring-blue-400 ring-inset bg-blue-900/20" : ""}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {chat.length === 0 && (
           <p className="text-gray-500 text-sm">
             チャットで指示を送ると、AIがサイトを編集します。
             <br />
             Inspect ボタンで要素を選択してから指示すると、ピンポイントで編集できます。
+            <br />
+            画像をドラッグ&ドロップして添付することもできます。
           </p>
         )}
         {chat.map((msg, i) => (
@@ -235,6 +335,12 @@ export default function ChatPanel({
             {statusText ?? "考え中..."}
           </div>
         )}
+        {uploading && (
+          <div className="flex items-center gap-2 text-gray-400 text-sm">
+            <div className="animate-pulse">●</div>
+            画像をアップロード中...
+          </div>
+        )}
       </div>
 
       {/* 選択中の要素表示 */}
@@ -257,9 +363,60 @@ export default function ChatPanel({
         </div>
       )}
 
+      {/* 画像プレビュー */}
+      {imagePreview && (
+        <div className="mx-3 mb-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg flex items-center gap-2">
+          <img
+            src={imagePreview}
+            alt="添付画像プレビュー"
+            className="w-12 h-12 object-cover rounded"
+          />
+          <span className="text-xs text-gray-400 flex-1 truncate">
+            {pendingImage?.name}
+          </span>
+          <button
+            onClick={clearImage}
+            className="text-gray-400 hover:text-gray-200 text-sm"
+          >
+            x
+          </button>
+        </div>
+      )}
+
       {/* 入力フォーム */}
       <form onSubmit={handleSubmit} className="p-3 border-t border-gray-700">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleImageSelect(file);
+          }}
+        />
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!connected}
+            className="bg-gray-700 text-gray-300 rounded-lg px-2.5 py-2 text-sm hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="画像を添付"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
           <input
             type="text"
             value={input}
@@ -267,14 +424,16 @@ export default function ChatPanel({
             placeholder={
               selectedElement
                 ? `${selectedElement.componentTree[0]?.name ?? selectedElement.tag} への指示...`
-                : "指示を入力..."
+                : pendingImage
+                  ? "画像の使い方を指示..."
+                  : "指示を入力..."
             }
             disabled={!connected}
             className="flex-1 bg-gray-800 text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 placeholder-gray-500"
           />
           <button
             type="submit"
-            disabled={!connected || !input.trim()}
+            disabled={!connected || (!input.trim() && !pendingImage)}
             className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             送信
