@@ -5,6 +5,7 @@ import sourceLocator from "./plugins/source-locator";
 import editorOverlay from "./plugins/editor-overlay";
 
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH ?? "/",
   plugins: [sourceLocator(), react(), tailwindcss(), editorOverlay()],
   server: {
     port: 5173,

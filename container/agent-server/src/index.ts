@@ -12,12 +12,28 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
 const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
 
+// 本番環境では Cloudflare Access JWT が必須（/health は除外）
+app.use("*", async (c, next) => {
+  if (process.env.NODE_ENV !== "production") return next();
+  if (c.req.path === "/health") return next();
+  const jwt = c.req.header("Cf-Access-Jwt-Assertion");
+  if (!jwt) {
+    log.warn("Access denied: missing Cf-Access-Jwt-Assertion", {
+      path: c.req.path,
+      ip: c.req.header("x-forwarded-for") ?? "unknown",
+    });
+    return c.text("Unauthorized", 401);
+  }
+  return next();
+});
+
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 // ゲストサイトプレビューへのプロキシ (/preview/*)
+// Vite の base='/preview/' に合わせてパスをそのまま転送する
 app.all("/preview/*", async (c) => {
-  const path = c.req.path.replace("/preview", "") || "/";
+  const path = c.req.path; // /preview/... のまま渡す
   const url = `${VITE_URL}${path}`;
   try {
     const resp = await fetch(url, {

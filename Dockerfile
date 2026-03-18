@@ -1,7 +1,7 @@
 FROM node:22-slim
 
 # システム依存
-RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git curl jq && rm -rf /var/lib/apt/lists/*
 RUN npm i -g tsx npm-run-all2
 
 # OpenCode CLI (Go バイナリ)
@@ -44,6 +44,9 @@ EXPOSE 8080
 # workspace は Fly Volume にマウントされる (/data/workspace)
 ENV WORKSPACE_DIR=/data/workspace
 ENV NODE_ENV=production
+
+# サイト設定
+COPY sites.json /app/sites.json
 
 # 起動スクリプト
 COPY container/start.sh /app/start.sh
