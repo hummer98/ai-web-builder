@@ -26,6 +26,7 @@ export default function ChatPanel({
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [deploying, setDeploying] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // WS メッセージをチャット履歴に変換
@@ -64,14 +65,27 @@ export default function ChatPanel({
           },
         ]);
       }
+    } else if (last.type === "git") {
+      setChat((prev) => [
+        ...prev,
+        { role: "status", content: (last as { message?: string }).message ?? "" },
+      ]);
+      setUndoing(false);
     } else if (last.type === "error") {
       setChat((prev) => [
         ...prev,
         { role: "assistant", content: `Error: ${last.message}` },
       ]);
       setLoading(false);
+      setUndoing(false);
     }
   }, [messages]);
+
+  function handleUndo() {
+    if (!connected || undoing) return;
+    setUndoing(true);
+    onSend({ type: "undo" });
+  }
 
   // 自動スクロール
   useEffect(() => {
@@ -105,6 +119,24 @@ export default function ChatPanel({
         />
         <span className="text-sm font-medium flex-1">AI Web Builder</span>
         <button
+          onClick={handleUndo}
+          disabled={!connected || undoing}
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="直前の変更を元に戻す"
+        >
+          {undoing ? (
+            <>
+              <span className="animate-spin">&#8635;</span>
+              戻し中...
+            </>
+          ) : (
+            <>
+              <span>&#8630;</span>
+              元に戻す
+            </>
+          )}
+        </button>
+        <button
           onClick={() => onSend({ type: "deploy" })}
           disabled={!connected || deploying}
           className="bg-emerald-600 text-white rounded-lg px-3 py-1 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
@@ -135,7 +167,9 @@ export default function ChatPanel({
             className={`text-sm whitespace-pre-wrap ${
               msg.role === "user"
                 ? "bg-blue-600/20 text-blue-100 rounded-lg px-3 py-2 ml-8"
-                : "bg-gray-800 text-gray-200 rounded-lg px-3 py-2 mr-8"
+                : msg.role === "status"
+                  ? "bg-green-600/20 text-green-200 rounded-lg px-3 py-2 text-center"
+                  : "bg-gray-800 text-gray-200 rounded-lg px-3 py-2 mr-8"
             }`}
           >
             {msg.content}

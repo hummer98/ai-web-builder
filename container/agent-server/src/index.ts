@@ -14,6 +14,7 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
 const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
+const SITE_NAME = process.env.SITE_DOMAIN ?? "guest-site";
 
 // 本番環境では Cloudflare Access JWT が必須（/health は除外）
 app.use("*", async (c, next) => {
@@ -85,6 +86,16 @@ app.get(
 
         if (data.type === "chat") {
           try {
+            // コマンド判定（要素コンテキストがない場合のみ）
+            if (!data.elementContext?.ocId) {
+              const cmd = detectCommand(data.message);
+              if (cmd) {
+                log.info("Command detected", { command: cmd.type });
+                await handleCommand(cmd, ws);
+                return;
+              }
+            }
+
             // セッション作成（初回のみ）
             if (!sessionId) {
               const session = await opencode.session.create();
@@ -148,20 +159,27 @@ app.get(
           try {
             const hash = undoLastCommit();
             if (hash) {
-              ws.send(JSON.stringify({ type: "git", action: "undo", hash }));
+              ws.send(
+                JSON.stringify({
+                  type: "git",
+                  action: "undo",
+                  message: `変更を元に戻しました (${hash})`,
+                })
+              );
+              log.info("Undo completed", { hash });
               // undo 後も push（バックグラウンド）
               autoPush().catch((err) =>
                 log.error("Push after undo failed", { error: String(err) })
               );
             } else {
               ws.send(
-                JSON.stringify({ type: "error", message: "Undo failed" })
+                JSON.stringify({ type: "error", message: "元に戻す変更がありません" })
               );
             }
           } catch (err) {
             log.error("Undo failed", { error: String(err) });
             ws.send(
-              JSON.stringify({ type: "error", message: `Undo error: ${err}` })
+              JSON.stringify({ type: "error", message: `元に戻す操作に失敗しました: ${err}` })
             );
           }
         }
@@ -329,6 +347,96 @@ function extractText(result: unknown): string {
       .join("\n");
   }
   return String(result);
+}
+
+// ---------------------------------------------------------------------------
+// 自然言語コマンド認識
+// ---------------------------------------------------------------------------
+
+type Command = { type: "undo" } | { type: "deploy" };
+
+/**
+ * ユーザーのメッセージが既知のコマンドに該当するかを正規表現で判定。
+ * 曖昧な場合は null を返して OpenCode に委ねる。
+ */
+function detectCommand(message: string): Command | null {
+  const trimmed = message.trim();
+
+  // undo
+  if (/^(元に戻して|戻して|取り消して|やり直して|undo)$/i.test(trimmed)) {
+    return { type: "undo" };
+  }
+  if (/^(さっきの(変更(を)?)?)?元に戻し(て|たい)$/i.test(trimmed)) {
+    return { type: "undo" };
+  }
+  if (/^(さっきの(変更(を)?)?)?(取り消し|やり直し)(て|たい)$/i.test(trimmed)) {
+    return { type: "undo" };
+  }
+
+  // deploy
+  if (/^(公開して|公開したい|デプロイして|デプロイしたい|publish|deploy)$/i.test(trimmed)) {
+    return { type: "deploy" };
+  }
+  if (/^サイトを(公開|デプロイ)して$/i.test(trimmed)) {
+    return { type: "deploy" };
+  }
+
+  return null;
+}
+
+/**
+ * 検出されたコマンドを実行し、結果を WebSocket で送信する。
+ */
+async function handleCommand(
+  cmd: Command,
+  ws: { send: (data: string) => void }
+): Promise<void> {
+  switch (cmd.type) {
+    case "undo": {
+      ws.send(JSON.stringify({ type: "status", message: "undoing" }));
+      const hash = undoLastCommit();
+      if (hash) {
+        autoPush().catch(() => {});
+        ws.send(
+          JSON.stringify({
+            type: "response",
+            message: `変更を元に戻しました (commit: ${hash})`,
+          })
+        );
+      } else {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: "元に戻せる変更がありませんでした",
+          })
+        );
+      }
+      break;
+    }
+
+    case "deploy": {
+      ws.send(JSON.stringify({ type: "status", message: "deploying" }));
+      const result = await deploy(SITE_NAME);
+      if (result.success) {
+        ws.send(
+          JSON.stringify({
+            type: "response",
+            message: result.pagesUrl
+              ? `サイトを公開しました！\n${result.pagesUrl}`
+              : "サイトを公開しました！",
+          })
+        );
+      } else {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: `公開に失敗しました: ${result.error}`,
+          })
+        );
+      }
+      break;
+    }
+  }
 }
 
 // エディター UI の静的ファイル配信（本番時: ビルド済み dist/）
