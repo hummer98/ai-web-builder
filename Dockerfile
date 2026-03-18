@@ -8,6 +8,9 @@ RUN npm i -g tsx npm-run-all2
 RUN curl -fsSL https://opencode.ai/install | bash && \
     find /root -name opencode -type f 2>/dev/null | head -1 | xargs -I{} cp {} /usr/local/bin/opencode
 
+# Playwright MCP + Chromium（AI 視覚フィードバック用）
+RUN npm i -g @playwright/mcp && npx playwright install --with-deps chromium
+
 WORKDIR /app
 
 # ルート依存

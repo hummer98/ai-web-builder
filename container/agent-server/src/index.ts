@@ -3,6 +3,9 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createOpencodeClient } from "@opencode-ai/sdk";
+import { autoCommit, autoPush, undoLastCommit } from "./git-ops.js";
+import { deploy } from "./deploy.js";
+import { createNewSite, importExistingRepo } from "./site-init.js";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("agent-server");
@@ -107,14 +110,29 @@ app.get(
             });
 
             // 結果を送信
+            const responseText = extractText(result);
             ws.send(
               JSON.stringify({
                 type: "response",
-                message: extractText(result),
+                message: responseText,
               })
             );
 
             log.info("OpenCode response sent", { sessionId });
+
+            // バックグラウンドで自動コミット + push（応答はブロックしない）
+            (async () => {
+              try {
+                const summary = truncateForCommit(responseText);
+                const hash = autoCommit(summary);
+                if (hash) {
+                  await autoPush();
+                  ws.send(JSON.stringify({ type: "git", action: "commit", hash }));
+                }
+              } catch (err) {
+                log.error("Background git ops failed", { error: String(err) });
+              }
+            })();
           } catch (err) {
             log.error("OpenCode prompt failed", { error: String(err) });
             ws.send(
@@ -122,6 +140,120 @@ app.get(
                 type: "error",
                 message: `AI error: ${err}`,
               })
+            );
+          }
+        }
+
+        if (data.type === "undo") {
+          try {
+            const hash = undoLastCommit();
+            if (hash) {
+              ws.send(JSON.stringify({ type: "git", action: "undo", hash }));
+              // undo 後も push（バックグラウンド）
+              autoPush().catch((err) =>
+                log.error("Push after undo failed", { error: String(err) })
+              );
+            } else {
+              ws.send(
+                JSON.stringify({ type: "error", message: "Undo failed" })
+              );
+            }
+          } catch (err) {
+            log.error("Undo failed", { error: String(err) });
+            ws.send(
+              JSON.stringify({ type: "error", message: `Undo error: ${err}` })
+            );
+          }
+        }
+
+        if (data.type === "deploy") {
+          const siteName = process.env.SITE_DOMAIN ?? "guest-site";
+          log.info("Deploy requested", { siteName });
+          ws.send(JSON.stringify({ type: "status", message: "deploying" }));
+
+          try {
+            const result = await deploy(siteName);
+            if (result.success) {
+              ws.send(
+                JSON.stringify({
+                  type: "deploy",
+                  success: true,
+                  url: result.pagesUrl,
+                })
+              );
+            } else {
+              ws.send(
+                JSON.stringify({
+                  type: "deploy",
+                  success: false,
+                  error: result.error,
+                })
+              );
+            }
+          } catch (err) {
+            log.error("Deploy failed", { error: String(err) });
+            ws.send(
+              JSON.stringify({
+                type: "deploy",
+                success: false,
+                error: String(err),
+              })
+            );
+          }
+        }
+
+        if (data.type === "create-site") {
+          const { owner, siteName } = data;
+          log.info("Create site requested", { owner, siteName });
+          ws.send(JSON.stringify({ type: "status", message: "creating" }));
+
+          try {
+            const result = await createNewSite(owner, siteName);
+            if (result.success) {
+              ws.send(
+                JSON.stringify({
+                  type: "site-init",
+                  action: "created",
+                  repoUrl: result.repoUrl,
+                })
+              );
+            } else {
+              ws.send(
+                JSON.stringify({ type: "error", message: result.error })
+              );
+            }
+          } catch (err) {
+            log.error("Create site failed", { error: String(err) });
+            ws.send(
+              JSON.stringify({ type: "error", message: String(err) })
+            );
+          }
+        }
+
+        if (data.type === "import-repo") {
+          const { owner, repoName } = data;
+          log.info("Import repo requested", { owner, repoName });
+          ws.send(JSON.stringify({ type: "status", message: "importing" }));
+
+          try {
+            const result = await importExistingRepo(owner, repoName);
+            if (result.success) {
+              ws.send(
+                JSON.stringify({
+                  type: "site-init",
+                  action: "imported",
+                  repoUrl: result.repoUrl,
+                })
+              );
+            } else {
+              ws.send(
+                JSON.stringify({ type: "error", message: result.error })
+              );
+            }
+          } catch (err) {
+            log.error("Import repo failed", { error: String(err) });
+            ws.send(
+              JSON.stringify({ type: "error", message: String(err) })
             );
           }
         }
@@ -137,6 +269,15 @@ app.get(
     };
   })
 );
+
+/**
+ * AI 応答テキストからコミットメッセージ用の要約を作成（50文字程度）
+ */
+function truncateForCommit(text: string): string {
+  const firstLine = text.split("\n").find((l) => l.trim().length > 0) ?? "AI edit";
+  if (firstLine.length <= 50) return firstLine;
+  return firstLine.slice(0, 47) + "...";
+}
 
 /**
  * Source Locator のコンテキスト付きプロンプトを構築

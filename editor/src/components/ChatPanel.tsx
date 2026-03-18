@@ -25,6 +25,7 @@ export default function ChatPanel({
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deploying, setDeploying] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // WS メッセージをチャット履歴に変換
@@ -33,13 +34,36 @@ export default function ChatPanel({
     const last = messages[messages.length - 1];
 
     if (last.type === "status") {
-      setLoading(true);
+      if (last.message === "deploying") {
+        setDeploying(true);
+      } else {
+        setLoading(true);
+      }
     } else if (last.type === "response") {
       setChat((prev) => [
         ...prev,
         { role: "assistant", content: last.message ?? "" },
       ]);
       setLoading(false);
+    } else if (last.type === "deploy") {
+      setDeploying(false);
+      if (last.success) {
+        setChat((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `公開しました!\n${(last as { url?: string }).url ?? ""}`,
+          },
+        ]);
+      } else {
+        setChat((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `公開に失敗しました: ${(last as { error?: string }).error ?? "不明なエラー"}`,
+          },
+        ]);
+      }
     } else if (last.type === "error") {
       setChat((prev) => [
         ...prev,
@@ -79,7 +103,21 @@ export default function ChatPanel({
         <div
           className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
         />
-        <span className="text-sm font-medium">AI Web Builder</span>
+        <span className="text-sm font-medium flex-1">AI Web Builder</span>
+        <button
+          onClick={() => onSend({ type: "deploy" })}
+          disabled={!connected || deploying}
+          className="bg-emerald-600 text-white rounded-lg px-3 py-1 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+        >
+          {deploying ? (
+            <>
+              <span className="animate-spin inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full" />
+              公開中...
+            </>
+          ) : (
+            "公開"
+          )}
+        </button>
       </div>
 
       {/* メッセージ一覧 */}

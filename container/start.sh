@@ -54,6 +54,8 @@ fi
 cp /app/container/scaffold/vite.config.ts "$WORKSPACE_DIR/vite.config.ts"
 cp /app/container/scaffold/tsconfig.json "$WORKSPACE_DIR/tsconfig.json"
 cp -r /app/container/scaffold/plugins/. "$WORKSPACE_DIR/plugins/"
+cp /app/container/scaffold/opencode.json "$WORKSPACE_DIR/opencode.json"
+cp /app/container/scaffold/OPENCODE.md "$WORKSPACE_DIR/OPENCODE.md"
 
 # Vite のキャッシュクリア（NODE_ENV 変更時に必要）
 rm -rf "$WORKSPACE_DIR/node_modules/.vite"

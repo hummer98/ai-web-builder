@@ -15,11 +15,11 @@
   "mcp": {
     "playwright": {
       "command": "npx",
-      "args": ["@playwright/mcp", "--headless", "--url", "http://localhost:5173"]
+      "args": ["@playwright/mcp", "--headless", "--url", "http://localhost:5173/preview/"]
     },
     "log-reader": {
       "command": "node",
-      "args": ["--import", "tsx", "../container/log-reader-mcp/src/index.ts"]
+      "args": ["--import", "tsx", "/app/container/log-reader-mcp/src/index.ts"]
     }
   }
 }
