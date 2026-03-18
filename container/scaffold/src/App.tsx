@@ -1,9 +1,13 @@
+import { Routes, Route } from "react-router";
+import Layout from "./components/Layout";
+import Home from "./pages/Home";
+
 export default function App() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gray-50">
-      <h1 className="text-2xl font-bold text-gray-800">
-        AI Web Builder — Ready
-      </h1>
-    </main>
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<Home />} />
+      </Route>
+    </Routes>
   );
 }

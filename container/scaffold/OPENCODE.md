@@ -3,6 +3,7 @@
 ## 技術スタック
 
 - React 19 + Tailwind CSS v4 (@import "tailwindcss" 方式、@tailwind ディレクティブは使わない)
+- React Router (SPA ルーティング)
 - Vite Dev Server (HMR 自動反映)
 - Hono (バックエンド API, /api/* にプロキシ)
 
@@ -10,11 +11,47 @@
 
 ```
 src/
-├── App.tsx          メインコンポーネント
-├── main.tsx         エントリーポイント
-└── index.css        Tailwind CSS
+├── main.tsx              エントリポイント (BrowserRouter)
+├── App.tsx               ルート定義 (Routes)
+├── index.css             グローバル CSS
+├── components/
+│   └── Layout.tsx        共通レイアウト (Nav + Outlet)
+└── pages/
+    └── Home.tsx          トップページ
 functions/
-└── api/index.ts     Hono バックエンド API
+└── api/index.ts          Hono バックエンド API
+```
+
+## 新ページ追加の手順
+
+1. `src/pages/` に新しいページコンポーネントを作成:
+
+```tsx
+// src/pages/About.tsx
+export default function About() {
+  return (
+    <main className="p-8">
+      <h1 className="text-2xl font-bold">About</h1>
+    </main>
+  );
+}
+```
+
+2. `src/App.tsx` にルートを追加:
+
+```tsx
+import About from "./pages/About";
+
+<Route element={<Layout />}>
+  <Route index element={<Home />} />
+  <Route path="about" element={<About />} />
+</Route>
+```
+
+3. ナビゲーションリンクを `src/components/Layout.tsx` に追加:
+
+```tsx
+<Link to="/about">About</Link>
 ```
 
 ## 編集後の必須検証（自己修復ループ）
@@ -50,3 +87,5 @@ functions/
 
 - `data-oc-id` / `data-oc-component` 属性は Vite プラグインが自動注入する。手動で追加しない。
 - 画像ファイルは `public/` に配置すると `/` から参照できる。
+- ページ間リンクには `<Link to="...">` を使う（`<a href>` ではなく）。
+- `import.meta.env.BASE_URL` が BrowserRouter の basename に設定済み。リンクのパスは相対で OK。

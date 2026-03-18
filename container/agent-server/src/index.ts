@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createOpencodeClient } from "@opencode-ai/sdk";
+import type { Event } from "@opencode-ai/sdk";
 import { autoCommit, autoPush, undoLastCommit } from "./git-ops.js";
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo } from "./site-init.js";
@@ -59,6 +60,7 @@ app.get(
   upgradeWebSocket(() => {
     let opencode: ReturnType<typeof createOpencodeClient>;
     let sessionId: string | undefined;
+    let eventStream: AsyncGenerator | null = null;
 
     return {
       async onOpen(_, ws) {
@@ -98,10 +100,12 @@ app.get(
 
             // セッション作成（初回のみ）
             if (!sessionId) {
-              const session = await opencode.session.create();
-              sessionId = session.id;
+              const res = await opencode.session.create();
+              sessionId = res.data!.id;
               log.info("OpenCode session created", { sessionId });
             }
+
+            const currentSessionId = sessionId;
 
             // ユーザーの指示を通知
             ws.send(
@@ -111,39 +115,23 @@ app.get(
               })
             );
 
-            // プロンプト送信
+            // イベントストリームを購読（初回のみ）
+            if (!eventStream) {
+              const sub = await opencode.event.subscribe();
+              eventStream = sub.stream;
+              processEventStream(eventStream, currentSessionId, ws);
+            }
+
+            // 非同期プロンプト送信（即座に返る、結果はイベントストリーム経由）
             const prompt = buildPrompt(data);
-            const result = await opencode.session.prompt({
-              path: { id: sessionId },
+            await opencode.session.promptAsync({
+              path: { id: currentSessionId },
               body: {
                 parts: [{ type: "text", text: prompt }],
               },
             });
 
-            // 結果を送信
-            const responseText = extractText(result);
-            ws.send(
-              JSON.stringify({
-                type: "response",
-                message: responseText,
-              })
-            );
-
-            log.info("OpenCode response sent", { sessionId });
-
-            // バックグラウンドで自動コミット + push（応答はブロックしない）
-            (async () => {
-              try {
-                const summary = truncateForCommit(responseText);
-                const hash = autoCommit(summary);
-                if (hash) {
-                  await autoPush();
-                  ws.send(JSON.stringify({ type: "git", action: "commit", hash }));
-                }
-              } catch (err) {
-                log.error("Background git ops failed", { error: String(err) });
-              }
-            })();
+            log.info("OpenCode prompt sent (async)", { sessionId });
           } catch (err) {
             log.error("OpenCode prompt failed", { error: String(err) });
             ws.send(
@@ -279,6 +267,10 @@ app.get(
 
       onClose() {
         log.info("WS disconnected", { sessionId });
+        if (eventStream) {
+          eventStream.return(undefined);
+          eventStream = null;
+        }
       },
 
       onError(error) {
@@ -334,19 +326,80 @@ function buildPrompt(data: {
   return parts.join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// OpenCode SSE ストリーミング
+// ---------------------------------------------------------------------------
+
 /**
- * OpenCode のレスポンスからテキストを抽出
+ * SSE イベントストリームを処理し、WS 経由でクライアントに転送
  */
-function extractText(result: unknown): string {
-  if (result && typeof result === "object" && "parts" in result) {
-    const parts = (result as { parts: { type: string; text?: string }[] })
-      .parts;
-    return parts
-      .filter((p) => p.type === "text")
-      .map((p) => p.text ?? "")
-      .join("\n");
+async function processEventStream(
+  stream: AsyncGenerator,
+  sessionId: string,
+  ws: { send: (data: string) => void }
+) {
+  try {
+    for await (const event of stream) {
+      handleEvent(event as Event, sessionId, ws);
+    }
+  } catch (err) {
+    log.error("Event stream error", { error: String(err) });
   }
-  return String(result);
+}
+
+/**
+ * OpenCode イベントを WS メッセージに変換して送信
+ */
+function handleEvent(
+  event: Event,
+  sessionId: string,
+  ws: { send: (data: string) => void }
+) {
+  switch (event.type) {
+    case "message.part.updated": {
+      const { part, delta } = event.properties;
+      if (part.sessionID !== sessionId) return;
+
+      if (part.type === "text" && delta) {
+        ws.send(JSON.stringify({ type: "stream", delta }));
+      } else if (part.type === "tool") {
+        if (part.state.status === "running") {
+          ws.send(JSON.stringify({ type: "status", message: part.tool }));
+        }
+      }
+      break;
+    }
+
+    case "session.status": {
+      if (event.properties.sessionID !== sessionId) return;
+      if (event.properties.status.type === "idle") {
+        ws.send(JSON.stringify({ type: "stream-end" }));
+        log.info("OpenCode response completed (stream)", { sessionId });
+
+        // 自動コミット + push
+        (async () => {
+          try {
+            const hash = autoCommit("AI edit");
+            if (hash) {
+              await autoPush();
+              ws.send(JSON.stringify({ type: "git", action: "commit", hash }));
+            }
+          } catch (err) {
+            log.error("Background git ops failed", { error: String(err) });
+          }
+        })();
+      }
+      break;
+    }
+
+    case "session.error": {
+      if (event.properties.sessionID !== sessionId) return;
+      const error = event.properties.error;
+      const errorMsg = error && "data" in error ? (error as { data: { message: string } }).data.message : "Unknown error";
+      ws.send(JSON.stringify({ type: "error", message: `AI error: ${errorMsg}` }));
+      break;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

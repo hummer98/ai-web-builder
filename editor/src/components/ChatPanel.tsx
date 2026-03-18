@@ -25,72 +25,117 @@ export default function ChatPanel({
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [statusText, setStatusText] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const processedRef = useRef(0);
 
   // WS メッセージをチャット履歴に変換
   useEffect(() => {
-    if (messages.length === 0) return;
-    const last = messages[messages.length - 1];
+    const start = processedRef.current;
+    if (start >= messages.length) return;
 
-    if (last.type === "status") {
-      if (last.message === "deploying") {
-        setDeploying(true);
-      } else {
-        setLoading(true);
+    for (let i = start; i < messages.length; i++) {
+      const msg = messages[i];
+
+      switch (msg.type) {
+        case "status":
+          if (msg.message === "deploying") {
+            setDeploying(true);
+          } else {
+            setLoading(true);
+            setStatusText(msg.message ?? "thinking");
+          }
+          break;
+
+        case "stream":
+          // ストリーミング中: 最後の assistant メッセージに delta を追記
+          setLoading(false);
+          setStreaming(true);
+          setStatusText(null);
+          setChat((prev) => {
+            const delta = String((msg as { delta?: string }).delta ?? "");
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant") {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...last,
+                content: last.content + delta,
+              };
+              return updated;
+            }
+            return [...prev, { role: "assistant", content: delta }];
+          });
+          break;
+
+        case "stream-end":
+          setStreaming(false);
+          setLoading(false);
+          setStatusText(null);
+          break;
+
+        case "response":
+          // 非ストリーミングのフォールバック
+          setChat((prev) => [
+            ...prev,
+            { role: "assistant", content: msg.message ?? "" },
+          ]);
+          setLoading(false);
+          setStreaming(false);
+          setStatusText(null);
+          break;
+
+        case "deploy":
+          setDeploying(false);
+          if ((msg as { success?: boolean }).success) {
+            setChat((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: `公開しました!\n${(msg as { url?: string }).url ?? ""}`,
+              },
+            ]);
+          } else {
+            setChat((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: `公開に失敗しました: ${(msg as { error?: string }).error ?? "不明なエラー"}`,
+              },
+            ]);
+          }
+          break;
+
+        case "git":
+          setChat((prev) => [
+            ...prev,
+            { role: "status", content: (msg as { message?: string }).message ?? "" },
+          ]);
+          setUndoing(false);
+          break;
+
+        case "error":
+          setChat((prev) => [
+            ...prev,
+            { role: "assistant", content: `Error: ${msg.message}` },
+          ]);
+          setLoading(false);
+          setStreaming(false);
+          setUndoing(false);
+          setStatusText(null);
+          break;
       }
-    } else if (last.type === "response") {
-      setChat((prev) => [
-        ...prev,
-        { role: "assistant", content: last.message ?? "" },
-      ]);
-      setLoading(false);
-    } else if (last.type === "deploy") {
-      setDeploying(false);
-      if (last.success) {
-        setChat((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `公開しました!\n${(last as { url?: string }).url ?? ""}`,
-          },
-        ]);
-      } else {
-        setChat((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `公開に失敗しました: ${(last as { error?: string }).error ?? "不明なエラー"}`,
-          },
-        ]);
-      }
-    } else if (last.type === "git") {
-      setChat((prev) => [
-        ...prev,
-        { role: "status", content: (last as { message?: string }).message ?? "" },
-      ]);
-      setUndoing(false);
-    } else if (last.type === "error") {
-      setChat((prev) => [
-        ...prev,
-        { role: "assistant", content: `Error: ${last.message}` },
-      ]);
-      setLoading(false);
-      setUndoing(false);
     }
-  }, [messages]);
 
-  function handleUndo() {
-    if (!connected || undoing) return;
-    setUndoing(true);
-    onSend({ type: "undo" });
-  }
+    processedRef.current = messages.length;
+  }, [messages]);
 
   // 自動スクロール
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
-  }, [chat, loading]);
+  }, [chat, loading, streaming]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -108,6 +153,12 @@ export default function ChatPanel({
     });
     setInput("");
     onClearElement();
+  }
+
+  function handleUndo() {
+    if (!connected || undoing) return;
+    setUndoing(true);
+    onSend({ type: "undo" });
   }
 
   return (
@@ -173,12 +224,15 @@ export default function ChatPanel({
             }`}
           >
             {msg.content}
+            {streaming && i === chat.length - 1 && msg.role === "assistant" && (
+              <span className="inline-block w-1.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
+            )}
           </div>
         ))}
         {loading && (
           <div className="flex items-center gap-2 text-gray-400 text-sm">
             <div className="animate-pulse">●</div>
-            考え中...
+            {statusText ?? "考え中..."}
           </div>
         )}
       </div>
