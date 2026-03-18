@@ -83,6 +83,41 @@ import About from "./pages/About";
    - 何を試したか
    - 推奨される次のアクション
 
+## フォーム送信
+
+お問い合わせフォームなどを作成する際は、scaffold に組み込まれた `POST /api/contact` エンドポイントを利用する。
+
+### 基本的な使い方
+
+フォームから `fetch` で JSON を送信:
+
+```tsx
+const res = await fetch("/api/contact", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name, email, message }),
+});
+const data = await res.json();
+if (data.success) {
+  // 送信完了の表示
+}
+```
+
+- 必須フィールド: `name`, `email`, `message`
+- 送信データは `data/submissions.json` に JSON Lines 形式で保存される
+
+### カスタムエンドポイントの追加
+
+予約フォームなど別の用途のエンドポイントを追加するには、`functions/api/index.ts` にルートを追加する:
+
+```ts
+app.post("/api/reservation", async (c) => {
+  const body = await c.req.json();
+  // バリデーション & 保存処理
+  return c.json({ success: true });
+});
+```
+
 ## 注意事項
 
 - `data-oc-id` / `data-oc-component` 属性は Vite プラグインが自動注入する。手動で追加しない。

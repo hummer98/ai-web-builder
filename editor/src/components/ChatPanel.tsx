@@ -36,6 +36,9 @@ export default function ChatPanel({
   const processedRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [commits, setCommits] = useState<{ hash: string; message: string; date: string }[]>([]);
 
   // WS メッセージをチャット履歴に変換
   useEffect(() => {
@@ -121,6 +124,11 @@ export default function ChatPanel({
           setUndoing(false);
           break;
 
+        case "history":
+          setHistoryLoading(false);
+          setCommits((msg as { commits?: { hash: string; message: string; date: string }[] }).commits ?? []);
+          break;
+
         case "error":
           setChat((prev) => [
             ...prev,
@@ -129,6 +137,7 @@ export default function ChatPanel({
           setLoading(false);
           setStreaming(false);
           setUndoing(false);
+          setHistoryLoading(false);
           setStatusText(null);
           break;
       }
@@ -253,14 +262,37 @@ export default function ChatPanel({
     onSend({ type: "undo" });
   }
 
+  function handleHistory() {
+    if (!connected) return;
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    setCommits([]);
+    onSend({ type: "history" });
+  }
+
+  function handleRevert(hash: string) {
+    if (!connected) return;
+    setHistoryOpen(false);
+    onSend({ type: "revert", hash });
+  }
+
   return (
-    <div className="flex flex-col h-full bg-gray-900 text-gray-100">
+    <div className="relative flex flex-col h-full bg-gray-900 text-gray-100">
       {/* ヘッダー */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-700">
         <div
           className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
         />
         <span className="text-sm font-medium flex-1">AI Web Builder</span>
+        <button
+          onClick={handleHistory}
+          disabled={!connected}
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="変更履歴を表示"
+        >
+          <span>&#128203;</span>
+          履歴
+        </button>
         <button
           onClick={handleUndo}
           disabled={!connected || undoing}
@@ -440,6 +472,65 @@ export default function ChatPanel({
           </button>
         </div>
       </form>
+
+      {/* 履歴モーダル */}
+      {historyOpen && (
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-xl w-[90%] max-w-md max-h-[70%] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <span className="text-sm font-medium">変更履歴</span>
+              <button
+                onClick={() => setHistoryOpen(false)}
+                className="text-gray-400 hover:text-gray-200 text-lg leading-none"
+              >
+                x
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
+                  <div className="animate-pulse mr-2">●</div>
+                  履歴を読み込み中...
+                </div>
+              ) : commits.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-8">
+                  履歴がありません
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {commits.map((c, i) => (
+                    <li
+                      key={c.hash}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-700/50 text-sm"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-gray-200 truncate">{c.message}</div>
+                        <div className="text-gray-500 text-xs">
+                          {new Date(c.date).toLocaleString("ja-JP", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          <span className="ml-2 text-gray-600">{c.hash}</span>
+                        </div>
+                      </div>
+                      {i > 0 && (
+                        <button
+                          onClick={() => handleRevert(c.hash)}
+                          className="shrink-0 bg-gray-600 text-gray-200 rounded px-2 py-1 text-xs hover:bg-gray-500"
+                        >
+                          戻す
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

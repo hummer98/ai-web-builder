@@ -7,7 +7,7 @@ import type { Event } from "@opencode-ai/sdk";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, extname } from "node:path";
 import { randomUUID } from "node:crypto";
-import { autoCommit, autoPush, undoLastCommit } from "./git-ops.js";
+import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from "./git-ops.js";
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo } from "./site-init.js";
 import { createLogger } from "./logger.js";
@@ -208,6 +208,51 @@ app.get(
             log.error("Undo failed", { error: String(err) });
             ws.send(
               JSON.stringify({ type: "error", message: `元に戻す操作に失敗しました: ${err}` })
+            );
+          }
+        }
+
+        if (data.type === "history") {
+          try {
+            const commits = getHistory(data.count ?? 20);
+            ws.send(
+              JSON.stringify({ type: "history", commits })
+            );
+            log.info("History sent", { count: commits.length });
+          } catch (err) {
+            log.error("History failed", { error: String(err) });
+            ws.send(
+              JSON.stringify({ type: "error", message: `履歴の取得に失敗しました: ${err}` })
+            );
+          }
+        }
+
+        if (data.type === "revert") {
+          try {
+            ws.send(JSON.stringify({ type: "status", message: "reverting" }));
+            const newHash = revertToCommit(data.hash);
+            if (newHash) {
+              ws.send(
+                JSON.stringify({
+                  type: "git",
+                  action: "revert",
+                  message: `${data.hash} の状態に戻しました (${newHash})`,
+                })
+              );
+              log.info("Revert to commit completed", { target: data.hash, newHash });
+              // revert 後も push（バックグラウンド）
+              autoPush().catch((err) =>
+                log.error("Push after revert failed", { error: String(err) })
+              );
+            } else {
+              ws.send(
+                JSON.stringify({ type: "error", message: "指定の状態に戻せませんでした" })
+              );
+            }
+          } catch (err) {
+            log.error("Revert failed", { error: String(err) });
+            ws.send(
+              JSON.stringify({ type: "error", message: `戻す操作に失敗しました: ${err}` })
             );
           }
         }

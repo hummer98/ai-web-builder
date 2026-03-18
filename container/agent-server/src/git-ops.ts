@@ -89,6 +89,56 @@ export function undoLastCommit(): string | null {
 }
 
 /**
+ * コミット履歴を取得
+ */
+export function getHistory(count: number = 20): { hash: string; message: string; date: string }[] {
+  try {
+    const raw = git(
+      "log",
+      `--pretty=format:%h%n%s%n%ci`,
+      `-${count}`
+    );
+    if (!raw) return [];
+
+    const lines = raw.split("\n");
+    const commits: { hash: string; message: string; date: string }[] = [];
+    for (let i = 0; i + 2 < lines.length; i += 3) {
+      commits.push({
+        hash: lines[i],
+        message: lines[i + 1],
+        date: lines[i + 2],
+      });
+    }
+    log.info("Got history", { count: commits.length });
+    return commits;
+  } catch (err) {
+    log.error("Get history failed", { error: String(err) });
+    return [];
+  }
+}
+
+/**
+ * 指定コミットの状態にファイルを戻す（新規コミットとして記録）
+ */
+export function revertToCommit(hash: string): string | null {
+  try {
+    git("checkout", hash, "--", ".");
+    git("add", "-A");
+    git(
+      "-c", "user.name=ai-web-builder[bot]",
+      "-c", "user.email=ai-web-builder[bot]@users.noreply.github.com",
+      "commit", "-m", `Revert to ${hash}`
+    );
+    const newHash = git("rev-parse", "--short", "HEAD");
+    log.info("Reverted to commit", { target: hash, newHash });
+    return newHash;
+  } catch (err) {
+    log.error("Revert to commit failed", { error: String(err) });
+    return null;
+  }
+}
+
+/**
  * Issue を作成（変更履歴の記録用）
  */
 export async function createIssue(
