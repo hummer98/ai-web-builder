@@ -81,6 +81,39 @@ OpenCode MCP 構成 (opencode.json):
 - `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` — デプロイ
 - `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` — GitHub App
 
+## テスト方針 (必須)
+
+AI エージェントがコードを生成・変更するプロジェクトでは、テストはフィードバックループの一部として必須。「動くはず」ではなく「テストが通った」を信頼の基準とする。
+
+### テストフレームワーク
+
+- **vitest** — 単体テスト + 統合テスト
+- テストファイルは対象ファイルと同じディレクトリに `*.test.ts` で配置
+
+### テスト対象と方針
+
+| レイヤー | 対象 | 方針 |
+|---------|------|------|
+| 純粋関数 | detectCommand, buildPrompt, truncateForCommit, extractText 等 | 入出力のマッピングを網羅 |
+| Git 操作 | autoCommit, getHistory, revertToCommit 等 | テンポラリ git repo で実物テスト |
+| HTTP API | /api/upload, /health 等 | Hono の testClient でリクエスト/レスポンス検証 |
+| WS ハンドラー | chat, undo, deploy, history 等 | OpenCode をモックし、メッセージ送受信を検証 |
+| MCP サーバー | log-reader の read_log, search_log, list_logs | テンポラリログファイルで実物テスト |
+
+### 実行
+
+```bash
+npm test          # 全テスト実行
+npm run test:ci   # CI 用（カバレッジ付き）
+```
+
+### ルール
+
+- 新機能・バグ修正には対応するテストを書く
+- テストが通らない状態でコミットしない
+- 外部サービス (OpenCode, GitHub API, Cloudflare) はモックする
+- ファイルシステム・Git 操作はテンポラリディレクトリで実物テスト
+
 ## 設計方針
 
 - 過剰設計しない (友人向け個人ツール)

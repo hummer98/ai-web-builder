@@ -1,98 +1,21 @@
-import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event } from "@opencode-ai/sdk";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join, extname } from "node:path";
-import { randomUUID } from "node:crypto";
 import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from "./git-ops.js";
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo } from "./site-init.js";
 import { createLogger } from "./logger.js";
+import { truncateForCommit, buildPrompt, detectCommand } from "./utils.js";
+import type { Command } from "./utils.js";
+import { createApp } from "./app.js";
 
 const log = createLogger("agent-server");
-const app = new Hono();
+const app = createApp();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
-const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
 const SITE_NAME = process.env.SITE_DOMAIN ?? "guest-site";
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
-const MAX_UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB
-
-// 本番環境では Cloudflare Access JWT が必須（/health は除外）
-app.use("*", async (c, next) => {
-  if (process.env.NODE_ENV !== "production") return next();
-  if (c.req.path === "/health") return next();
-  const jwt = c.req.header("Cf-Access-Jwt-Assertion");
-  if (!jwt) {
-    log.warn("Access denied: missing Cf-Access-Jwt-Assertion", {
-      path: c.req.path,
-      ip: c.req.header("x-forwarded-for") ?? "unknown",
-    });
-    return c.text("Unauthorized", 401);
-  }
-  return next();
-});
-
-// Health check
-app.get("/health", (c) => c.json({ status: "ok" }));
-
-// 画像アップロード
-app.post("/api/upload", async (c) => {
-  try {
-    const body = await c.req.parseBody();
-    const file = body["file"];
-    if (!(file instanceof File)) {
-      return c.json({ error: "No file provided" }, 400);
-    }
-
-    // ファイルサイズチェック
-    if (file.size > MAX_UPLOAD_SIZE) {
-      return c.json({ error: "File too large (max 5MB)" }, 413);
-    }
-
-    // 画像 MIME タイプチェック
-    if (!file.type.startsWith("image/")) {
-      return c.json({ error: "Only image files are allowed" }, 400);
-    }
-
-    const ext = extname(file.name) || ".png";
-    const filename = `${randomUUID()}${ext}`;
-    const uploadsDir = join(WORKSPACE_DIR, "public", "uploads");
-    mkdirSync(uploadsDir, { recursive: true });
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    writeFileSync(join(uploadsDir, filename), buffer);
-
-    log.info("File uploaded", { filename, size: file.size });
-    return c.json({ url: `/uploads/${filename}` });
-  } catch (err) {
-    log.error("Upload failed", { error: String(err) });
-    return c.json({ error: "Upload failed" }, 500);
-  }
-});
-
-// ゲストサイトプレビューへのプロキシ (/preview/*)
-// Vite の base='/preview/' に合わせてパスをそのまま転送する
-app.all("/preview/*", async (c) => {
-  const path = c.req.path; // /preview/... のまま渡す
-  const url = `${VITE_URL}${path}`;
-  try {
-    const resp = await fetch(url, {
-      method: c.req.method,
-      headers: c.req.raw.headers,
-    });
-    return new Response(resp.body, {
-      status: resp.status,
-      headers: resp.headers,
-    });
-  } catch {
-    return c.text("Preview server not available", 502);
-  }
-});
 
 // WebSocket endpoint
 app.get(
@@ -365,60 +288,6 @@ app.get(
   })
 );
 
-/**
- * AI 応答テキストからコミットメッセージ用の要約を作成（50文字程度）
- */
-function truncateForCommit(text: string): string {
-  const firstLine = text.split("\n").find((l) => l.trim().length > 0) ?? "AI edit";
-  if (firstLine.length <= 50) return firstLine;
-  return firstLine.slice(0, 47) + "...";
-}
-
-/**
- * Source Locator のコンテキスト付きプロンプトを構築
- */
-function buildPrompt(data: {
-  message: string;
-  imageUrl?: string;
-  elementContext?: {
-    ocId?: string;
-    tag?: string;
-    text?: string;
-    classes?: string;
-    componentTree?: { name: string; file: string }[];
-  };
-}): string {
-  const parts: string[] = [];
-
-  if (data.elementContext?.ocId) {
-    const ctx = data.elementContext;
-    parts.push("## 対象要素");
-    if (ctx.ocId) parts.push(`- ID: ${ctx.ocId}`);
-    if (ctx.tag) parts.push(`- タグ: ${ctx.tag}`);
-    if (ctx.text) parts.push(`- テキスト: "${ctx.text}"`);
-    if (ctx.classes) parts.push(`- クラス: ${ctx.classes}`);
-    if (ctx.componentTree?.length) {
-      parts.push(
-        `- コンポーネント: ${ctx.componentTree.map((c) => c.name).join(" > ")}`
-      );
-      parts.push(`- ファイル: ${ctx.componentTree[0].file}`);
-    }
-    parts.push("");
-  }
-
-  if (data.imageUrl) {
-    parts.push("## 添付画像");
-    parts.push(`- URL: ${data.imageUrl}`);
-    parts.push("この画像をサイトで使用してください。");
-    parts.push("");
-  }
-
-  parts.push("## ユーザーの指示");
-  parts.push(data.message);
-
-  return parts.join("\n");
-}
-
 // ---------------------------------------------------------------------------
 // OpenCode SSE ストリーミング
 // ---------------------------------------------------------------------------
@@ -495,41 +364,6 @@ function handleEvent(
   }
 }
 
-// ---------------------------------------------------------------------------
-// 自然言語コマンド認識
-// ---------------------------------------------------------------------------
-
-type Command = { type: "undo" } | { type: "deploy" };
-
-/**
- * ユーザーのメッセージが既知のコマンドに該当するかを正規表現で判定。
- * 曖昧な場合は null を返して OpenCode に委ねる。
- */
-function detectCommand(message: string): Command | null {
-  const trimmed = message.trim();
-
-  // undo
-  if (/^(元に戻して|戻して|取り消して|やり直して|undo)$/i.test(trimmed)) {
-    return { type: "undo" };
-  }
-  if (/^(さっきの(変更(を)?)?)?元に戻し(て|たい)$/i.test(trimmed)) {
-    return { type: "undo" };
-  }
-  if (/^(さっきの(変更(を)?)?)?(取り消し|やり直し)(て|たい)$/i.test(trimmed)) {
-    return { type: "undo" };
-  }
-
-  // deploy
-  if (/^(公開して|公開したい|デプロイして|デプロイしたい|publish|deploy)$/i.test(trimmed)) {
-    return { type: "deploy" };
-  }
-  if (/^サイトを(公開|デプロイ)して$/i.test(trimmed)) {
-    return { type: "deploy" };
-  }
-
-  return null;
-}
-
 /**
  * 検出されたコマンドを実行し、結果を WebSocket で送信する。
  */
@@ -583,16 +417,6 @@ async function handleCommand(
       break;
     }
   }
-}
-
-// エディター UI の静的ファイル配信（本番時: ビルド済み dist/）
-if (process.env.NODE_ENV === "production") {
-  app.use(
-    "/*",
-    serveStatic({ root: "../../editor/dist" })
-  );
-  // SPA フォールバック
-  app.get("/*", serveStatic({ root: "../../editor/dist", path: "index.html" }));
 }
 
 const port = 8080;

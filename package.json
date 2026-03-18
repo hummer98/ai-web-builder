@@ -10,11 +10,14 @@
     "dev:agent": "cd container/agent-server && npx tsx watch src/index.ts",
     "dev:opencode": "cd workspace && opencode serve :4096",
     "dev:vite": "npm run dev --prefix workspace",
-    "dev:hono": "cd workspace && npx tsx watch functions/api/index.ts"
+    "dev:hono": "cd workspace && npx tsx watch functions/api/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "npm-run-all2": "^7.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.0"
   }
 }

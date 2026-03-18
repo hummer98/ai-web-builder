@@ -4,11 +4,13 @@ import { createLogger } from "./logger.js";
 
 const log = createLogger("agent-server");
 
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
+function getWorkspaceDir(): string {
+  return process.env.WORKSPACE_DIR ?? "./workspace";
+}
 
 function git(...args: string[]): string {
   return execFileSync("git", args, {
-    cwd: WORKSPACE_DIR,
+    cwd: getWorkspaceDir(),
     encoding: "utf-8",
     timeout: 30000,
   }).trim();
