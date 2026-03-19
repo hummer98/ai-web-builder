@@ -56,7 +56,11 @@ export function buildPrompt(data: {
 // 自然言語コマンド認識
 // ---------------------------------------------------------------------------
 
-export type Command = { type: "undo" } | { type: "deploy" };
+export type Command =
+  | { type: "undo" }
+  | { type: "deploy" }
+  | { type: "create"; siteName: string }
+  | { type: "import"; repoName: string };
 
 /**
  * ユーザーのメッセージが既知のコマンドに該当するかを正規表現で判定。
@@ -82,6 +86,18 @@ export function detectCommand(message: string): Command | null {
   }
   if (/^サイトを(公開|デプロイ)して$/i.test(trimmed)) {
     return { type: "deploy" };
+  }
+
+  // create-site
+  {
+    const m = /^(.+)のサイトを(作って|作りたい)$/.exec(trimmed);
+    if (m) return { type: "create", siteName: m[1] };
+  }
+
+  // import-repo
+  {
+    const m = /^(.+)を(編集したい|開いて|編集して)$/.exec(trimmed);
+    if (m) return { type: "import", repoName: m[1] };
   }
 
   return null;

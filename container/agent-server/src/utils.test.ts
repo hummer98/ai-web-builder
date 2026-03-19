@@ -138,6 +138,49 @@ describe("detectCommand", () => {
     });
   });
 
+  describe("日本語 create-site", () => {
+    it('"カフェのサイトを作って" → create', () => {
+      expect(detectCommand("カフェのサイトを作って")).toEqual({
+        type: "create",
+        siteName: "カフェ",
+      });
+    });
+
+    it('"photo-studioのサイトを作りたい" → create', () => {
+      expect(detectCommand("photo-studioのサイトを作りたい")).toEqual({
+        type: "create",
+        siteName: "photo-studio",
+      });
+    });
+
+    it('"サイトを作って" (サイト名なし) → null', () => {
+      expect(detectCommand("サイトを作って")).toBeNull();
+    });
+  });
+
+  describe("日本語 import-repo", () => {
+    it('"le-serpentを編集したい" → import', () => {
+      expect(detectCommand("le-serpentを編集したい")).toEqual({
+        type: "import",
+        repoName: "le-serpent",
+      });
+    });
+
+    it('"cafe-siteを開いて" → import', () => {
+      expect(detectCommand("cafe-siteを開いて")).toEqual({
+        type: "import",
+        repoName: "cafe-site",
+      });
+    });
+
+    it('"le-serpentを編集して" → import', () => {
+      expect(detectCommand("le-serpentを編集して")).toEqual({
+        type: "import",
+        repoName: "le-serpent",
+      });
+    });
+  });
+
   describe("null を返すべきケース", () => {
     it.each([
       "ヘッダーを青くして",

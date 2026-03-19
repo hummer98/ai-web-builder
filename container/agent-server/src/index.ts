@@ -416,6 +416,56 @@ async function handleCommand(
       }
       break;
     }
+
+    case "create": {
+      ws.send(JSON.stringify({ type: "status", message: "creating" }));
+      try {
+        const result = await createNewSite("hummer98", cmd.siteName);
+        if (result.success) {
+          ws.send(
+            JSON.stringify({
+              type: "site-init",
+              action: "created",
+              repoUrl: result.repoUrl,
+            })
+          );
+        } else {
+          ws.send(
+            JSON.stringify({ type: "error", message: result.error })
+          );
+        }
+      } catch (err) {
+        ws.send(
+          JSON.stringify({ type: "error", message: `サイト作成に失敗しました: ${err}` })
+        );
+      }
+      break;
+    }
+
+    case "import": {
+      ws.send(JSON.stringify({ type: "status", message: "importing" }));
+      try {
+        const result = await importExistingRepo("hummer98", cmd.repoName);
+        if (result.success) {
+          ws.send(
+            JSON.stringify({
+              type: "site-init",
+              action: "imported",
+              repoUrl: result.repoUrl,
+            })
+          );
+        } else {
+          ws.send(
+            JSON.stringify({ type: "error", message: result.error })
+          );
+        }
+      } catch (err) {
+        ws.send(
+          JSON.stringify({ type: "error", message: `リポジトリ取り込みに失敗しました: ${err}` })
+        );
+      }
+      break;
+    }
   }
 }
 
