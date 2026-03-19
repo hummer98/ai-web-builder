@@ -22,6 +22,61 @@ functions/
 └── api/index.ts          Hono バックエンド API
 ```
 
+## HTML 構造ガイドライン（必須）
+
+エディターのインスペクトモードはセマンティック HTML タグに基づいて日本語ラベルを表示し、コンテキストメニューで直接編集を提供する。**`<div>` と `<span>` だけで組むとこれらの機能が動作しない。** 以下のタグを適切に使うこと。
+
+### ページ全体の構造
+
+```tsx
+<header>       // ヘッダー（ロゴ、サイト名）
+  <nav>        // メニュー（ナビゲーションリンク）
+    <Link>...</Link>
+  </nav>
+</header>
+<main>         // メインコンテンツ
+  <section>    // 各セクション（ヒーロー、サービス紹介、アクセス等）
+    <h2>見出し</h2>
+    <p>本文テキスト</p>
+  </section>
+  <section>
+    ...
+  </section>
+</main>
+<footer>       // フッター
+  ...
+</footer>
+```
+
+### タグの使い分け
+
+| 用途 | 使うタグ | 避けるタグ |
+|------|---------|----------|
+| ページの見出し | `<h1>` (1ページに1つ) | `<div className="text-3xl">` |
+| セクション見出し | `<h2>`, `<h3>` | `<p className="font-bold text-xl">` |
+| 本文テキスト | `<p>` | `<div>テキスト</div>` |
+| リンク | `<a>` または `<Link>` | `<div onClick={...}>` |
+| ボタン | `<button>` | `<div className="cursor-pointer">` |
+| 画像 | `<img alt="説明">` | `<div style={{backgroundImage}}>` |
+| リスト | `<ul>` + `<li>` | `<div>` の羅列 |
+| 表 | `<table>` + `<tr>` + `<td>` | `<div>` の Grid |
+| フォーム | `<form>` + `<input>` + `<textarea>` | — |
+| セクション区切り | `<section>` | `<div>` |
+| サイドバー | `<aside>` | `<div>` |
+| 記事 | `<article>` | `<div>` |
+
+### 画像には必ず alt を付ける
+
+```tsx
+// ✅
+<img src="/uploads/shop.jpg" alt="店舗外観" />
+
+// ❌
+<img src="/uploads/shop.jpg" />
+```
+
+`alt` はインスペクトモードのツールチップに表示され、ユーザーが画像を識別する手がかりになる。
+
 ## 新ページ追加の手順
 
 1. `src/pages/` に新しいページコンポーネントを作成:
