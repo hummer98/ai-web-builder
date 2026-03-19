@@ -24,9 +24,10 @@ type Props = {
   onEditText?: (context: ElementContext, newText: string) => void;
   onReplaceImage?: (context: ElementContext, fileName: string, fileData: string) => void;
   onDeleteElement?: (context: ElementContext) => void;
+  inspectRequested?: number; // increment to toggle inspect from parent
 };
 
-export default function PreviewPanel({ onElementSelected, onEditText, onReplaceImage, onDeleteElement }: Props) {
+export default function PreviewPanel({ onElementSelected, onEditText, onReplaceImage, onDeleteElement, inspectRequested }: Props) {
   const [sizeIndex, setSizeIndex] = useState(0);
   const [inspectMode, setInspectMode] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -67,6 +68,13 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
     );
   }, [inspectMode]);
 
+  // 親からの inspect トグル要求
+  useEffect(() => {
+    if (inspectRequested && inspectRequested > 0) {
+      toggleInspect();
+    }
+  }, [inspectRequested]);
+
   return (
     <div className="flex flex-col h-full bg-gray-800">
       {/* ツールバー */}
@@ -80,6 +88,7 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
           }`}
         >
           {inspectMode ? "Inspect ON" : "Inspect"}
+          <kbd className="hidden md:inline ml-1 text-[10px] opacity-60 font-mono">⌘I</kbd>
         </button>
         <div className="w-px h-4 bg-gray-600" />
         {SIZES.map((s, i) => (

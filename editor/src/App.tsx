@@ -16,6 +16,7 @@ export default function App() {
   );
   const [injectedMessages, setInjectedMessages] = useState<ChatMessage[]>([]);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [inspectRequested, setInspectRequested] = useState(0);
 
   // ? キーでヘルプを開く、Escape で閉じる
   useEffect(() => {
@@ -28,6 +29,11 @@ export default function App() {
         const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
         if (tag === "input" || tag === "textarea") return;
         setHelpOpen(true);
+      }
+      // ⌘I (Mac) / Ctrl+I (Windows) で Inspect トグル
+      if (e.key === "i" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setInspectRequested((n) => n + 1);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -129,6 +135,7 @@ export default function App() {
           onEditText={handleEditText}
           onReplaceImage={handleReplaceImage}
           onDeleteElement={handleDeleteElement}
+          inspectRequested={inspectRequested}
         />
       </div>
 
@@ -171,7 +178,7 @@ export default function App() {
                   要素を選んで編集
                 </div>
                 <p className="text-gray-400 ml-7">
-                  「Inspect」→ 要素をクリック → メニューから操作
+                  「Inspect」(⌘I) → 要素をクリック → メニューから操作
                   <br />
                   ・テキストを編集: その場で書き換え
                   <br />
