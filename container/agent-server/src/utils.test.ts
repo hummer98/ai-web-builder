@@ -181,6 +181,23 @@ describe("detectCommand", () => {
     });
   });
 
+  describe("help", () => {
+    it.each([
+      "使い方",
+      "ヘルプ",
+      "help",
+      "?",
+      "使い方を教えて",
+      "使い方は？",
+    ])('"%s" → help', (msg) => {
+      expect(detectCommand(msg)).toEqual({ type: "help" });
+    });
+
+    it('"ヘルプを表示して" → null（長い文は OpenCode に委ねる）', () => {
+      expect(detectCommand("ヘルプを表示して")).toBeNull();
+    });
+  });
+
   describe("null を返すべきケース", () => {
     it.each([
       "ヘッダーを青くして",

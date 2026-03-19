@@ -14,6 +14,7 @@ type Props = {
   selectedElement: ElementContext | null;
   onClearElement: () => void;
   injectedMessages?: ChatMessage[];
+  onHelp: () => void;
 };
 
 export default function ChatPanel({
@@ -23,6 +24,7 @@ export default function ChatPanel({
   selectedElement,
   onClearElement,
   injectedMessages,
+  onHelp,
 }: Props) {
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
@@ -329,6 +331,13 @@ export default function ChatPanel({
           className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
         />
         <span className="text-sm font-medium flex-1">AI Web Builder</span>
+        <button
+          onClick={onHelp}
+          className="text-gray-400 hover:text-gray-200 text-sm px-2 py-1"
+          title="使い方 (?)"
+        >
+          ?
+        </button>
         <button
           onClick={handleHistory}
           disabled={!connected}

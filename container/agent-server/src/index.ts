@@ -6,7 +6,7 @@ import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo } from "./site-init.js";
 import { createLogger } from "./logger.js";
-import { truncateForCommit, buildPrompt, detectCommand } from "./utils.js";
+import { truncateForCommit, buildPrompt, detectCommand, HELP_TEXT } from "./utils.js";
 import type { Command } from "./utils.js";
 import { createApp } from "./app.js";
 
@@ -439,6 +439,14 @@ async function handleCommand(
           JSON.stringify({ type: "error", message: `サイト作成に失敗しました: ${err}` })
         );
       }
+      break;
+    }
+
+    case "help": {
+      ws.send(JSON.stringify({
+        type: "response",
+        message: HELP_TEXT,
+      }));
       break;
     }
 

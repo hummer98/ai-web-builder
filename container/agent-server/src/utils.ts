@@ -60,7 +60,8 @@ export type Command =
   | { type: "undo" }
   | { type: "deploy" }
   | { type: "create"; siteName: string }
-  | { type: "import"; repoName: string };
+  | { type: "import"; repoName: string }
+  | { type: "help" };
 
 /**
  * ユーザーのメッセージが既知のコマンドに該当するかを正規表現で判定。
@@ -78,6 +79,11 @@ export function detectCommand(message: string): Command | null {
   }
   if (/^(さっきの(変更(を)?)?)?(取り消し|やり直し)(て|たい)$/i.test(trimmed)) {
     return { type: "undo" };
+  }
+
+  // help
+  if (/^(使い方|ヘルプ|help|\?|どうやって使う|使い方を教えて|使い方は？)$/i.test(trimmed)) {
+    return { type: "help" };
   }
 
   // deploy
@@ -102,3 +108,34 @@ export function detectCommand(message: string): Command | null {
 
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// ヘルプテキスト
+// ---------------------------------------------------------------------------
+
+export const HELP_TEXT = `\
+💬 チャットで指示
+テキスト入力して送信 → AI がサイトを編集します
+例:「ヘッダーを青くして」「お問い合わせフォームを追加して」
+
+🔍 要素を選んで編集
+「Inspect」→ 要素をクリック → メニューから操作
+・テキストを編集: その場で書き換え
+・画像を差し替え: 新しい画像を選択
+・削除: 要素を削除
+・チャットで指示: より詳しい指示を入力
+
+📎 画像を添付
+📎ボタン or ドラッグ&ドロップで画像を添付して送信
+
+↩ 元に戻す
+「元に戻す」ボタン or チャットで「元に戻して」
+
+📋 履歴
+「履歴」ボタンで変更一覧を表示、任意の状態に復元
+
+🚀 公開
+「公開」ボタン or チャットで「公開して」
+
+❓ ヘルプ
+? キー or チャットで「使い方」と入力`;
