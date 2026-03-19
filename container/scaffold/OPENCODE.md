@@ -22,44 +22,57 @@ functions/
 └── api/index.ts          Hono バックエンド API
 ```
 
-## HTML 構造ガイドライン（必須）
+## コンポーネント設計ガイドライン（必須）
 
-エディターのインスペクトモードはセマンティック HTML タグに基づいて日本語ラベルを表示し、コンテキストメニューで直接編集を提供する。**`<div>` と `<span>` だけで組むとこれらの機能が動作しない。** 以下のタグを適切に使うこと。
+エディターのインスペクトモードは JSX のセマンティックタグに基づいて日本語ラベルを表示し、コンテキストメニューでテキスト編集・画像差し替え・削除を提供する。**`<div>` と `<span>` だけで組むとこれらの機能が動作しない。**
 
-### ページ全体の構造
+### コンポーネントの分割
+
+ページは**セクション単位**でコンポーネントに分割する。各コンポーネントはセマンティックタグをルートに持つ:
 
 ```tsx
-<header>       // ヘッダー（ロゴ、サイト名）
-  <nav>        // メニュー（ナビゲーションリンク）
-    <Link>...</Link>
-  </nav>
-</header>
-<main>         // メインコンテンツ
-  <section>    // 各セクション（ヒーロー、サービス紹介、アクセス等）
-    <h2>見出し</h2>
-    <p>本文テキスト</p>
-  </section>
-  <section>
-    ...
-  </section>
-</main>
-<footer>       // フッター
-  ...
-</footer>
+// src/pages/Home.tsx
+export default function Home() {
+  return (
+    <main>
+      <HeroSection />
+      <MenuSection />
+      <AccessSection />
+      <ContactSection />
+    </main>
+  );
+}
 ```
 
-### タグの使い分け
+```tsx
+// src/components/HeroSection.tsx — セクションコンポーネントの例
+export default function HeroSection() {
+  return (
+    <section className="py-16 text-center">
+      <h1 className="text-4xl font-bold">Le Serpent</h1>
+      <p className="mt-4 text-lg text-gray-600">フレンチビストロ</p>
+      <img src="/uploads/hero.jpg" alt="店舗外観" className="mt-8 w-full md:w-1/2 mx-auto" />
+      <Link to="/menu" className="mt-6 inline-block bg-blue-600 text-white px-6 py-3 rounded-lg">
+        メニューを見る
+      </Link>
+    </section>
+  );
+}
+```
+
+### JSX タグの使い分け
 
 | 用途 | 使うタグ | 避けるタグ |
 |------|---------|----------|
 | ページの見出し | `<h1>` (1ページに1つ) | `<div className="text-3xl">` |
 | セクション見出し | `<h2>`, `<h3>` | `<p className="font-bold text-xl">` |
 | 本文テキスト | `<p>` | `<div>テキスト</div>` |
-| リンク | `<a>` または `<Link>` | `<div onClick={...}>` |
-| ボタン | `<button>` | `<div className="cursor-pointer">` |
-| 画像 | `<img alt="説明">` | `<div style={{backgroundImage}}>` |
+| ページ内リンク | `<Link to="...">` | `<div onClick={...}>` |
+| 外部リンク | `<a href="..." target="_blank">` | `<span onClick={...}>` |
+| アクションボタン | `<button>` | `<div className="cursor-pointer">` |
+| 画像 | `<img alt="説明文">` | `<div style={{backgroundImage}}>` |
 | リスト | `<ul>` + `<li>` | `<div>` の羅列 |
-| 表 | `<table>` + `<tr>` + `<td>` | `<div>` の Grid |
+| 表 | `<table>` + `<thead>` + `<tbody>` | `<div>` の Grid レイアウト |
 | フォーム | `<form>` + `<input>` + `<textarea>` | — |
 | セクション区切り | `<section>` | `<div>` |
 | サイドバー | `<aside>` | `<div>` |
@@ -68,14 +81,18 @@ functions/
 ### 画像には必ず alt を付ける
 
 ```tsx
-// ✅
-<img src="/uploads/shop.jpg" alt="店舗外観" />
+// ✅ — alt がインスペクトモードのツールチップに表示される
+<img src="/uploads/shop.jpg" alt="店舗外観" className="w-full rounded-lg" />
 
 // ❌
 <img src="/uploads/shop.jpg" />
 ```
 
-`alt` はインスペクトモードのツールチップに表示され、ユーザーが画像を識別する手がかりになる。
+### `<div>` を使ってよい場面
+
+- Tailwind のレイアウトコンテナ（`flex`, `grid`, `max-w-*` 等）
+- 装飾的なラッパー（背景色、パディング等）
+- 意味的に該当するセマンティックタグがない場合
 
 ## 新ページ追加の手順
 
