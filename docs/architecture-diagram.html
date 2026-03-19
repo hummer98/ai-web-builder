@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Web Builder - Architecture Diagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; padding: 40px 20px; }
+  h1 { text-align: center; font-size: 24px; margin-bottom: 8px; color: #f1f5f9; }
+  .subtitle { text-align: center; font-size: 14px; color: #64748b; margin-bottom: 40px; }
+  .diagram { max-width: 1100px; margin: 0 auto; position: relative; }
+
+  /* Layers */
+  .layer { border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-bottom: 24px; position: relative; }
+  .layer-label { position: absolute; top: -10px; left: 16px; background: #0f172a; padding: 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; }
+
+  .layer-browser { border-color: #3b82f6; }
+  .layer-browser .layer-label { color: #60a5fa; }
+
+  .layer-fly { border-color: #8b5cf6; }
+  .layer-fly .layer-label { color: #a78bfa; }
+
+  .layer-external { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  /* Boxes */
+  .box { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; }
+  .box-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .box-content { font-size: 12px; color: #94a3b8; line-height: 1.6; }
+  .box-content li { margin-left: 16px; list-style: disc; }
+  .box-content code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 11px; color: #e2e8f0; }
+
+  /* Box colors */
+  .box-blue { border-color: #3b82f6; }
+  .box-blue .box-title { color: #60a5fa; }
+  .box-green { border-color: #22c55e; }
+  .box-green .box-title { color: #4ade80; }
+  .box-purple { border-color: #8b5cf6; }
+  .box-purple .box-title { color: #a78bfa; }
+  .box-orange { border-color: #f97316; }
+  .box-orange .box-title { color: #fb923c; }
+  .box-red { border-color: #ef4444; }
+  .box-red .box-title { color: #f87171; }
+  .box-cyan { border-color: #06b6d4; }
+  .box-cyan .box-title { color: #22d3ee; }
+  .box-yellow { border-color: #eab308; }
+  .box-yellow .box-title { color: #facc15; }
+
+  /* Grid layouts */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .grid-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+
+  /* Arrows */
+  .arrow-container { text-align: center; margin: -8px 0; position: relative; z-index: 1; }
+  .arrow { display: inline-block; color: #64748b; font-size: 13px; }
+  .arrow-label { font-size: 11px; color: #64748b; margin: 0 8px; }
+
+  /* Badges */
+  .badge { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; margin: 1px; }
+  .badge-blue { background: #1e3a5f; color: #60a5fa; }
+  .badge-green { background: #14532d; color: #4ade80; }
+  .badge-purple { background: #3b0764; color: #c084fc; }
+  .badge-orange { background: #431407; color: #fb923c; }
+  .badge-gray { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+
+  /* Port badges */
+  .port { font-size: 10px; color: #94a3b8; background: #0f172a; border: 1px solid #334155; padding: 1px 6px; border-radius: 3px; font-family: monospace; }
+
+  /* Sub-section within fly */
+  .sub-layer { border: 1px dashed #334155; border-radius: 8px; padding: 14px; margin-top: 12px; position: relative; }
+  .sub-layer-label { position: absolute; top: -9px; left: 12px; background: #0f172a; padding: 0 6px; font-size: 11px; color: #64748b; }
+
+  /* Tag list */
+  .tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+  /* Deploy config */
+  .deploy-section { margin-top: 32px; }
+  .deploy-section h2 { font-size: 16px; margin-bottom: 12px; color: #94a3b8; }
+  .deploy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .deploy-box { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; }
+  .deploy-box .url { font-family: monospace; font-size: 12px; color: #22d3ee; }
+  .deploy-box .env { font-family: monospace; font-size: 11px; color: #94a3b8; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>AI Web Builder</h1>
+<p class="subtitle">非エンジニア向け AI 駆動 WYSIWYG Web サイト構築ツール</p>
+
+<div class="diagram">
+
+  <!-- Browser Layer -->
+  <div class="layer layer-browser">
+    <span class="layer-label">ブラウザ</span>
+    <div class="grid-2">
+      <div class="box box-blue">
+        <div class="box-title">💬 ChatPanel</div>
+        <div class="box-content">
+          <div class="tag-list">
+            <span class="badge badge-blue">?ヘルプ</span>
+            <span class="badge badge-blue">📋履歴</span>
+            <span class="badge badge-blue">↩戻す</span>
+            <span class="badge badge-green">🚀公開</span>
+          </div>
+          <ul style="margin-top: 8px;">
+            <li>自然言語チャット → AI がコード編集</li>
+            <li>📎 画像添付（D&D / ボタン）</li>
+            <li>ストリーミング応答表示</li>
+            <li>コマンド検出: 「元に戻して」「公開して」「使い方」</li>
+          </ul>
+        </div>
+      </div>
+      <div class="box box-blue">
+        <div class="box-title">🔍 PreviewPanel (Iframe)</div>
+        <div class="box-content">
+          <div class="tag-list">
+            <span class="badge badge-blue">Inspect</span>
+            <span class="badge badge-gray">Desktop</span>
+            <span class="badge badge-gray">Tablet</span>
+            <span class="badge badge-gray">Mobile</span>
+          </div>
+          <ul style="margin-top: 8px;">
+            <li>Vite HMR でリアルタイム反映</li>
+            <li>ホバー → 日本語セマンティックラベル</li>
+            <li>クリック → コンテキストメニュー</li>
+          </ul>
+          <div class="tag-list" style="margin-top: 6px;">
+            <span class="badge badge-orange">テキストを編集</span>
+            <span class="badge badge-orange">画像を差し替え</span>
+            <span class="badge badge-orange">削除</span>
+            <span class="badge badge-gray">チャットで指示</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-container">
+    <span class="arrow">▼</span>
+    <span class="arrow-label">WebSocket / REST / HMR</span>
+    <span class="arrow">▼</span>
+  </div>
+
+  <!-- Fly.io Layer -->
+  <div class="layer layer-fly">
+    <span class="layer-label">Fly.io コンテナ (Auto Start/Stop, NRT)</span>
+
+    <!-- Agent Server -->
+    <div class="box box-purple">
+      <div class="box-title">Agent Server <span class="port">:8080</span></div>
+      <div class="box-content">
+        <div class="grid-2" style="margin-bottom: 8px;">
+          <div>
+            <strong style="color: #e2e8f0;">HTTP</strong>
+            <ul>
+              <li><code>/health</code></li>
+              <li><code>/api/upload</code> 画像アップロード</li>
+              <li><code>/preview/*</code> → Vite proxy</li>
+            </ul>
+          </div>
+          <div>
+            <strong style="color: #e2e8f0;">WebSocket</strong>
+            <ul>
+              <li><code>chat</code> → OpenCode (SSE streaming)</li>
+              <li><code>undo</code> / <code>deploy</code> / <code>history</code></li>
+              <li><code>create-site</code> / <code>import-repo</code></li>
+            </ul>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div style="background: #0f172a; padding: 8px; border-radius: 6px;">
+            <div style="font-size: 11px; font-weight: 600; color: #a78bfa; margin-bottom: 4px;">detectCommand</div>
+            <div style="font-size: 11px;">自然言語 → コマンド変換<br>（undo / deploy / help / create / import）</div>
+          </div>
+          <div style="background: #0f172a; padding: 8px; border-radius: 6px;">
+            <div style="font-size: 11px; font-weight: 600; color: #a78bfa; margin-bottom: 4px;">autoCommit + autoPush</div>
+            <div style="font-size: 11px;">AI 編集完了後にバックグラウンドで<br>自動コミット → GitHub push</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-container" style="margin: 8px 0;">
+      <span class="arrow">▼</span>
+      <span class="arrow-label">OpenCode SDK (promptAsync + SSE events)</span>
+      <span class="arrow">▼</span>
+    </div>
+
+    <!-- OpenCode -->
+    <div class="box box-cyan">
+      <div class="box-title">opencode serve <span class="port">:4096</span></div>
+      <div class="box-content">
+        <div style="margin-bottom: 8px;">AI 編集エンジン — ファイル編集・LSP・Git スナップショット</div>
+        <div class="grid-2">
+          <div class="box" style="padding: 10px;">
+            <div class="box-title box-green" style="font-size: 12px;">🎭 Playwright MCP</div>
+            <div class="box-content" style="font-size: 11px;">
+              <ul>
+                <li>スクリーンショット → 視覚検証</li>
+                <li>コンソールメッセージ → JS エラー検知</li>
+                <li>headless Chromium</li>
+              </ul>
+            </div>
+          </div>
+          <div class="box" style="padding: 10px;">
+            <div class="box-title box-yellow" style="font-size: 12px;">📋 log-reader MCP</div>
+            <div class="box-content" style="font-size: 11px;">
+              <ul>
+                <li><code>read_log</code> サービス別ログ読み取り</li>
+                <li><code>search_log</code> 全ログ横断検索</li>
+                <li><code>list_logs</code> ログ一覧</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 8px; padding: 8px; background: #0f172a; border-radius: 6px; border: 1px dashed #22d3ee;">
+          <div style="font-size: 11px; font-weight: 600; color: #22d3ee; margin-bottom: 4px;">🔄 自己修復ループ (OPENCODE.md)</div>
+          <div style="font-size: 11px;">編集 → screenshot → console → logs → エラーなら自動修正（最大3回）</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-container" style="margin: 8px 0;">
+      <span class="arrow">▼</span>
+      <span class="arrow-label">ファイル編集 → HMR / tsx watch</span>
+      <span class="arrow">▼</span>
+    </div>
+
+    <!-- Dev Servers + Volume -->
+    <div class="grid-3">
+      <div class="box box-green">
+        <div class="box-title">Vite Dev Server <span class="port">:5173</span></div>
+        <div class="box-content">フロントエンド HMR<br>Source Locator + Editor Overlay 注入</div>
+      </div>
+      <div class="box box-green">
+        <div class="box-title">Hono Dev Server <span class="port">:3000</span></div>
+        <div class="box-content">バックエンド API<br>tsx watch で自動再起動</div>
+      </div>
+      <div class="box box-orange">
+        <div class="box-title">📁 Fly Volume <code>/data</code></div>
+        <div class="box-content">
+          <code>workspace/</code><br>
+          ├ <code>src/</code> → Vite HMR<br>
+          ├ <code>functions/</code> → tsx watch<br>
+          ├ <code>public/uploads/</code> 画像<br>
+          └ <code>.git/</code> → GitHub push
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-container">
+    <span class="arrow">▼</span>
+    <span class="arrow-label">外部サービス</span>
+    <span class="arrow">▼</span>
+  </div>
+
+  <!-- External Services -->
+  <div class="layer-external">
+    <div class="box box-purple">
+      <div class="box-title">🐙 GitHub</div>
+      <div class="box-content">
+        <ul>
+          <li><code>ai-web-builder[bot]</code> 自動コミット</li>
+          <li>push / revert</li>
+          <li>ゲストリポジトリのバックアップ</li>
+        </ul>
+      </div>
+    </div>
+    <div class="box box-orange">
+      <div class="box-title">☁️ Cloudflare</div>
+      <div class="box-content">
+        <ul>
+          <li>Access — 認証 (メールベース)</li>
+          <li>Pages — 静的ファイル配信</li>
+          <li>Workers — Hono API</li>
+        </ul>
+      </div>
+    </div>
+    <div class="box box-cyan">
+      <div class="box-title">🤖 OpenRouter</div>
+      <div class="box-content">
+        <ul>
+          <li>LLM API プロキシ</li>
+          <li>Gemini 2.5 Pro</li>
+          <li>GPT / Kimi 等切替可</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy Configuration -->
+  <div class="deploy-section">
+    <h2>デプロイ構成</h2>
+    <div class="deploy-grid">
+      <div class="deploy-box">
+        <div class="box-title" style="color: #4ade80; font-size: 13px;">🟢 ai-web-builder (本番)</div>
+        <div class="url">editor.le-serpent.club</div>
+        <div class="env">SITE_DOMAIN=le-serpent.club</div>
+        <div class="box-content" style="margin-top: 6px;">Machine + Volume | Cloudflare Access 認証</div>
+      </div>
+      <div class="deploy-box">
+        <div class="box-title" style="color: #60a5fa; font-size: 13px;">🔵 ai-web-builder-demo (デモ)</div>
+        <div class="url">ai-web-builder-demo.fly.dev</div>
+        <div class="env">SITE_DOMAIN 未設定 → scaffold</div>
+        <div class="box-content" style="margin-top: 6px;">Machine + Volume | 認証なし</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

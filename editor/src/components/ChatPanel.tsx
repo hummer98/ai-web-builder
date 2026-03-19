@@ -333,10 +333,11 @@ export default function ChatPanel({
         <span className="text-sm font-medium flex-1">AI Web Builder</span>
         <button
           onClick={onHelp}
-          className="text-gray-400 hover:text-gray-200 text-sm px-2 py-1"
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
           title="使い方 (?)"
         >
-          ?
+          <span>?</span>
+          使い方
         </button>
         <button
           onClick={handleHistory}
