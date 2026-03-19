@@ -21,9 +21,12 @@ export type ElementContext = {
 
 type Props = {
   onElementSelected?: (context: ElementContext) => void;
+  onEditText?: (context: ElementContext, newText: string) => void;
+  onReplaceImage?: (context: ElementContext, fileName: string, fileData: string) => void;
+  onDeleteElement?: (context: ElementContext) => void;
 };
 
-export default function PreviewPanel({ onElementSelected }: Props) {
+export default function PreviewPanel({ onElementSelected, onEditText, onReplaceImage, onDeleteElement }: Props) {
   const [sizeIndex, setSizeIndex] = useState(0);
   const [inspectMode, setInspectMode] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -32,13 +35,27 @@ export default function PreviewPanel({ onElementSelected }: Props) {
   // Iframe からの postMessage を受信
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
-      if (e.data?.type === "element-selected") {
-        onElementSelected?.(e.data.context);
+      const data = e.data;
+      if (!data?.type) return;
+
+      switch (data.type) {
+        case "element-selected":
+          onElementSelected?.(data.context);
+          break;
+        case "edit-text":
+          onEditText?.(data.context, data.newText);
+          break;
+        case "replace-image":
+          onReplaceImage?.(data.context, data.fileName, data.fileData);
+          break;
+        case "delete-element":
+          onDeleteElement?.(data.context);
+          break;
       }
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [onElementSelected]);
+  }, [onElementSelected, onEditText, onReplaceImage, onDeleteElement]);
 
   // インスペクトモードの切り替えを Iframe に通知
   const toggleInspect = useCallback(() => {

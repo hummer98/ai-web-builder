@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { WSMessage } from "../hooks/useWebSocket";
 import type { ElementContext } from "./PreviewPanel";
 
-type ChatMessage = {
+export type ChatMessage = {
   role: "user" | "assistant" | "status";
   content: string;
 };
@@ -13,6 +13,7 @@ type Props = {
   onSend: (msg: WSMessage) => void;
   selectedElement: ElementContext | null;
   onClearElement: () => void;
+  injectedMessages?: ChatMessage[];
 };
 
 export default function ChatPanel({
@@ -21,6 +22,7 @@ export default function ChatPanel({
   onSend,
   selectedElement,
   onClearElement,
+  injectedMessages,
 }: Props) {
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
@@ -145,6 +147,15 @@ export default function ChatPanel({
 
     processedRef.current = messages.length;
   }, [messages]);
+
+  // 外部から注入されたメッセージをチャットに追加
+  const injectedCountRef = useRef(0);
+  useEffect(() => {
+    if (!injectedMessages || injectedMessages.length <= injectedCountRef.current) return;
+    const newMessages = injectedMessages.slice(injectedCountRef.current);
+    setChat((prev) => [...prev, ...newMessages]);
+    injectedCountRef.current = injectedMessages.length;
+  }, [injectedMessages]);
 
   // AI タイムアウト通知（60秒でソフト、120秒でハード）
   useEffect(() => {
