@@ -28,13 +28,48 @@ const SEMANTIC_LABELS: Record<string, { label: string; color: string }> = {
   FORM: { label: "フォーム", color: "#ef4444" },
 };
 
+const TAG_LABELS: Record<string, string> = {
+  HEADER: "ヘッダー",
+  NAV: "メニュー",
+  MAIN: "メインコンテンツ",
+  SECTION: "セクション",
+  ARTICLE: "記事",
+  ASIDE: "サイドバー",
+  FOOTER: "フッター",
+  FORM: "フォーム",
+  H1: "見出し", H2: "見出し", H3: "見出し", H4: "見出し", H5: "見出し", H6: "見出し",
+  P: "本文",
+  A: "リンク",
+  BUTTON: "ボタン",
+  IMG: "画像",
+  VIDEO: "動画",
+  IFRAME: "埋め込み",
+  UL: "リスト", OL: "リスト",
+  LI: "リスト項目",
+  TABLE: "表",
+  INPUT: "入力欄", TEXTAREA: "入力欄", SELECT: "入力欄",
+};
+
 // テンプレートリテラル内のスクリプト
 const OVERLAY_SCRIPT = `
 const LABELS = ${JSON.stringify(SEMANTIC_LABELS)};
+const TAG_LABELS = ${JSON.stringify(TAG_LABELS)};
 
 let inspectMode = false;
 let highlightEl = null;
 let labelEls = [];
+
+// 意味のある親要素を探す
+function findMeaningfulElement(el) {
+  const GENERIC_TAGS = new Set(['SPAN', 'DIV', 'I', 'EM', 'STRONG', 'B', 'SMALL', 'LABEL', 'ABBR', 'CITE', 'CODE', 'DATA', 'DFN', 'KBD', 'MARK', 'Q', 'S', 'SAMP', 'SUB', 'SUP', 'TIME', 'U', 'VAR', 'WBR']);
+  if (!GENERIC_TAGS.has(el.tagName)) return el;
+  let current = el.parentElement;
+  while (current && current !== document.body) {
+    if (TAG_LABELS[current.tagName]) return current;
+    current = current.parentElement;
+  }
+  return el;
+}
 
 // ハイライトオーバーレイ要素を作成
 const overlay = document.createElement('div');
@@ -69,17 +104,30 @@ document.addEventListener('mousemove', (e) => {
   if (!el || el === overlay || el === tooltip || el.id?.startsWith('__oc_')) return;
 
   highlightEl = el;
-  const rect = el.getBoundingClientRect();
+  const meaningful = findMeaningfulElement(el);
+  const rect = meaningful.getBoundingClientRect();
   overlay.style.display = 'block';
   overlay.style.left = rect.left + 'px';
   overlay.style.top = rect.top + 'px';
   overlay.style.width = rect.width + 'px';
   overlay.style.height = rect.height + 'px';
 
-  // ツールチップにコンポーネント名 or タグ名を表示
-  const ocComponent = el.closest('[data-oc-component]')?.getAttribute('data-oc-component');
-  const ocId = el.getAttribute('data-oc-id') || '';
-  tooltip.textContent = ocComponent ? ocComponent + ' — ' + el.tagName.toLowerCase() : el.tagName.toLowerCase();
+  // ツールチップ: 「テキスト」 ラベル
+  const label = TAG_LABELS[meaningful.tagName] || '';
+  let text = '';
+  if (meaningful.tagName === 'IMG') {
+    text = meaningful.getAttribute('alt') || '';
+  } else {
+    text = (meaningful.textContent || '').trim().slice(0, 20);
+  }
+
+  if (text && label) {
+    tooltip.textContent = '\\u300c' + text + (text.length >= 20 ? '...' : '') + '\\u300d ' + label;
+  } else if (label) {
+    tooltip.textContent = label;
+  } else {
+    tooltip.textContent = meaningful.tagName.toLowerCase();
+  }
   tooltip.style.display = 'block';
   tooltip.style.left = rect.left + 'px';
   tooltip.style.top = Math.max(0, rect.top - 24) + 'px';
@@ -107,8 +155,9 @@ document.addEventListener('click', (e) => {
     current = current.parentElement;
   }
 
+  const ocId = el.getAttribute('data-oc-id') || findMeaningfulElement(el).getAttribute('data-oc-id') || '';
   const context = {
-    ocId: el.getAttribute('data-oc-id') || '',
+    ocId,
     tag: el.tagName.toLowerCase(),
     text: (el.textContent || '').slice(0, 100).trim(),
     classes: el.className || '',
