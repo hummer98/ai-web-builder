@@ -146,6 +146,40 @@ export default function ChatPanel({
     processedRef.current = messages.length;
   }, [messages]);
 
+  // AI タイムアウト通知（60秒でソフト、120秒でハード）
+  useEffect(() => {
+    if (!loading && !streaming) return;
+
+    const softId = setTimeout(() => {
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "status",
+          content: "AI の応答に時間がかかっています。しばらくお待ちください。",
+        },
+      ]);
+    }, 60_000);
+
+    const hardId = setTimeout(() => {
+      setChat((prev) => [
+        ...prev,
+        {
+          role: "status",
+          content:
+            "AI の応答がタイムアウトしました。ページをリロードしてやり直してください。",
+        },
+      ]);
+      setLoading(false);
+      setStreaming(false);
+      setStatusText(null);
+    }, 120_000);
+
+    return () => {
+      clearTimeout(softId);
+      clearTimeout(hardId);
+    };
+  }, [loading, streaming]);
+
   // 自動スクロール
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
