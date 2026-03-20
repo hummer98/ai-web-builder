@@ -56,7 +56,7 @@ test.describe("AI Web Builder デモ", () => {
     await waitForResponse(page);
 
     // リセット完了メッセージを確認
-    await expect(page.locator("text=リセット")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("初期状態にリセットしました")).toBeVisible({ timeout: 30_000 });
   });
 
   test("Step 1: サイト生成", async ({ page }) => {
@@ -126,7 +126,7 @@ test.describe("AI Web Builder デモ", () => {
     await page.waitForTimeout(2000);
 
     // 履歴モーダルが表示される
-    await expect(page.locator("text=変更履歴")).toBeVisible();
+    await expect(page.getByText("変更履歴")).toBeVisible();
     await page.waitForTimeout(2000);
 
     // モーダルを閉じる（Escape）
@@ -139,7 +139,7 @@ test.describe("AI Web Builder デモ", () => {
     await page.locator('button:has-text("使い方")').click();
     await page.waitForTimeout(2000);
 
-    await expect(page.locator("text=チャットで指示")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "使い方" })).toBeVisible();
     await page.waitForTimeout(2000);
 
     // 閉じる
