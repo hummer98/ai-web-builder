@@ -26,9 +26,18 @@ async function waitForResponse(page: import("@playwright/test").Page, timeout = 
   await page.waitForTimeout(2000);
 }
 
-// チャットでメッセージを送信
+// チャットでメッセージを送信（WS 接続待ちを含む）
 async function sendChat(page: import("@playwright/test").Page, message: string) {
-  const input = page.locator('input[placeholder*="指示を入力"]');
+  // WS 接続が確立されて input が有効になるまで待つ
+  const input = page.locator('input[placeholder*="指示"]');
+  await input.waitFor({ state: "attached", timeout: 60_000 });
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector('input[placeholder*="指示"]') as HTMLInputElement;
+      return el && !el.disabled;
+    },
+    { timeout: 60_000 }
+  );
   await input.fill(message);
   await page.locator('button:has-text("送信")').click();
 }

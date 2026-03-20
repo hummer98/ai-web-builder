@@ -22,7 +22,7 @@ export function createApp() {
   // 認証ミドルウェア（/health は常に除外）
   app.use("*", async (c, next) => {
     if (process.env.NODE_ENV !== "production") return next();
-    if (c.req.path === "/health") return next();
+    if (c.req.path === "/health" || c.req.path === "/ws") return next();
 
     // DEMO_PASSWORD が設定されている場合: Basic 認証
     const demoPassword = process.env.DEMO_PASSWORD;
