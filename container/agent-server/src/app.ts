@@ -111,13 +111,25 @@ export function createApp() {
   });
 
   // エディター UI の静的ファイル配信（本番時: ビルド済み dist/）
+  // /ws, /api, /preview, /health は除外（他のルートが処理する）
   if (process.env.NODE_ENV === "production") {
-    app.use(
-      "/*",
-      serveStatic({ root: "../../editor/dist" })
-    );
-    // SPA フォールバック
-    app.get("/*", serveStatic({ root: "../../editor/dist", path: "index.html" }));
+    app.use("/*", async (c, next) => {
+      const path = c.req.path;
+      if (path === "/ws" || path.startsWith("/api") || path.startsWith("/preview") || path === "/health") {
+        return next();
+      }
+      const mw = serveStatic({ root: "../../editor/dist" });
+      return mw(c, next);
+    });
+    // SPA フォールバック（同じ除外条件）
+    app.get("/*", async (c, next) => {
+      const path = c.req.path;
+      if (path === "/ws" || path.startsWith("/api") || path.startsWith("/preview") || path === "/health") {
+        return next();
+      }
+      const mw = serveStatic({ root: "../../editor/dist", path: "index.html" });
+      return mw(c, next);
+    });
   }
 
   return app;
