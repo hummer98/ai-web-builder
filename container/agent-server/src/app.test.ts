@@ -115,8 +115,9 @@ describe("app HTTP routes", () => {
   // 認証ミドルウェア (NODE_ENV=production)
   // -------------------------------------------------------------------------
   describe("auth middleware (production)", () => {
-    it("returns 401 without Cf-Access-Jwt-Assertion header", async () => {
+    it("returns 401 without Cf-Access-Jwt-Assertion header when CLOUDFLARE_ACCESS_AUD is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", "dummy-aud");
       vi.resetModules();
       const app = await getApp();
 
