@@ -178,14 +178,16 @@ export async function resetWorkspace(): Promise<{ success: boolean; error?: stri
       }
     }
 
-    // git commit
-    execFileSync("git", ["add", "-A"], { cwd: workspaceDir });
-    execFileSync("git", [
-      "-c", "user.name=ai-web-builder[bot]",
-      "-c", "user.email=ai-web-builder[bot]@users.noreply.github.com",
-      "commit", "-m", "Reset to scaffold",
-      "--allow-empty",
-    ], { cwd: workspaceDir });
+    // git commit（.git がある場合のみ）
+    if (existsSync(join(workspaceDir, ".git"))) {
+      execFileSync("git", ["add", "-A"], { cwd: workspaceDir });
+      execFileSync("git", [
+        "-c", "user.name=ai-web-builder[bot]",
+        "-c", "user.email=ai-web-builder[bot]@users.noreply.github.com",
+        "commit", "-m", "Reset to scaffold",
+        "--allow-empty",
+      ], { cwd: workspaceDir });
+    }
 
     log.info("Workspace reset to scaffold");
     return { success: true };

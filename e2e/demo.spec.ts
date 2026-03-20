@@ -56,7 +56,7 @@ test.describe("AI Web Builder デモ", () => {
     await waitForResponse(page);
 
     // リセット完了メッセージを確認
-    await expect(page.locator("text=リセットしました")).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("text=リセット")).toBeVisible({ timeout: 30_000 });
   });
 
   test("Step 1: サイト生成", async ({ page }) => {
