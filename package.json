@@ -12,9 +12,12 @@
     "dev:vite": "npm run dev --prefix workspace",
     "dev:hono": "cd workspace && npx tsx watch functions/api/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "demo": "npx playwright test --project demo",
+    "demo:headed": "npx playwright test --project demo --headed"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "npm-run-all2": "^7.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",

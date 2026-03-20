@@ -61,7 +61,8 @@ export type Command =
   | { type: "deploy" }
   | { type: "create"; siteName: string }
   | { type: "import"; repoName: string }
-  | { type: "help" };
+  | { type: "help" }
+  | { type: "reset" };
 
 /**
  * ユーザーのメッセージが既知のコマンドに該当するかを正規表現で判定。
@@ -84,6 +85,11 @@ export function detectCommand(message: string): Command | null {
   // help
   if (/^(使い方|ヘルプ|help|\?|どうやって使う|使い方を教えて|使い方は？)$/i.test(trimmed)) {
     return { type: "help" };
+  }
+
+  // reset
+  if (/^(リセットして|初期化して|reset|リセット)$/i.test(trimmed)) {
+    return { type: "reset" };
   }
 
   // deploy

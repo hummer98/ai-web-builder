@@ -9,3 +9,4 @@ dist/
 .claude/
 logs/
 workspace/
+e2e/results/

@@ -198,6 +198,15 @@ describe("detectCommand", () => {
     });
   });
 
+  describe("reset", () => {
+    it.each(["リセットして", "初期化して", "reset", "リセット"])(
+      '"%s" → reset',
+      (msg) => {
+        expect(detectCommand(msg)).toEqual({ type: "reset" });
+      }
+    );
+  });
+
   describe("null を返すべきケース", () => {
     it.each([
       "ヘッダーを青くして",

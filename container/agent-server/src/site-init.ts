@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { getOctokit, getInstallationToken, isGitHubAppConfigured } from "./github-app.js";
 import { createLogger } from "./logger.js";
@@ -148,5 +148,49 @@ export async function importExistingRepo(
     const error = String(err);
     log.error("Repo import failed", { repoName, error });
     return { success: false, workspacePath, error };
+  }
+}
+
+/**
+ * ワークスペースを scaffold の初期状態にリセットする。
+ * node_modules, .git, opencode.json は保持する。
+ */
+export async function resetWorkspace(): Promise<{ success: boolean; error?: string }> {
+  const workspaceDir = WORKSPACE_DIR;
+  const scaffoldDir = SCAFFOLD_DIR;
+
+  try {
+    // ユーザーコンテンツを削除
+    for (const dir of ["src", "functions", "public"]) {
+      const target = join(workspaceDir, dir);
+      if (existsSync(target)) rmSync(target, { recursive: true });
+    }
+    // index.html 削除
+    const indexHtml = join(workspaceDir, "index.html");
+    if (existsSync(indexHtml)) rmSync(indexHtml);
+
+    // scaffold からコピー
+    for (const item of ["src", "functions", "public", "index.html", "package.json"]) {
+      const src = join(scaffoldDir, item);
+      const dest = join(workspaceDir, item);
+      if (existsSync(src)) {
+        cpSync(src, dest, { recursive: true });
+      }
+    }
+
+    // git commit
+    execFileSync("git", ["add", "-A"], { cwd: workspaceDir });
+    execFileSync("git", [
+      "-c", "user.name=ai-web-builder[bot]",
+      "-c", "user.email=ai-web-builder[bot]@users.noreply.github.com",
+      "commit", "-m", "Reset to scaffold",
+      "--allow-empty",
+    ], { cwd: workspaceDir });
+
+    log.info("Workspace reset to scaffold");
+    return { success: true };
+  } catch (err) {
+    log.error("Workspace reset failed", { error: String(err) });
+    return { success: false, error: String(err) };
   }
 }

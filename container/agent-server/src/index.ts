@@ -4,7 +4,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event } from "@opencode-ai/sdk";
 import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from "./git-ops.js";
 import { deploy } from "./deploy.js";
-import { createNewSite, importExistingRepo } from "./site-init.js";
+import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
 import { createLogger } from "./logger.js";
 import { truncateForCommit, buildPrompt, detectCommand, HELP_TEXT } from "./utils.js";
 import type { Command } from "./utils.js";
@@ -470,6 +470,27 @@ async function handleCommand(
       } catch (err) {
         ws.send(
           JSON.stringify({ type: "error", message: `リポジトリ取り込みに失敗しました: ${err}` })
+        );
+      }
+      break;
+    }
+
+    case "reset": {
+      ws.send(JSON.stringify({ type: "status", message: "resetting" }));
+      const result = await resetWorkspace();
+      if (result.success) {
+        ws.send(
+          JSON.stringify({
+            type: "response",
+            message: "ワークスペースを初期状態にリセットしました",
+          })
+        );
+      } else {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: `リセットに失敗しました: ${result.error}`,
+          })
         );
       }
       break;
