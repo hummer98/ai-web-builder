@@ -19,11 +19,27 @@ export function createApp() {
   const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
   const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
 
-  // 本番環境では Cloudflare Access JWT が必須（/health は除外、SKIP_AUTH=true で無効化）
+  // 認証ミドルウェア（/health は常に除外）
   app.use("*", async (c, next) => {
     if (process.env.NODE_ENV !== "production") return next();
-    if (process.env.SKIP_AUTH === "true") return next();
     if (c.req.path === "/health") return next();
+
+    // DEMO_PASSWORD が設定されている場合: Basic 認証
+    const demoPassword = process.env.DEMO_PASSWORD;
+    if (demoPassword) {
+      const auth = c.req.header("Authorization");
+      if (auth?.startsWith("Basic ")) {
+        const decoded = atob(auth.slice(6));
+        const password = decoded.split(":").slice(1).join(":");
+        if (password === demoPassword) return next();
+      }
+      return new Response("Unauthorized", {
+        status: 401,
+        headers: { "WWW-Authenticate": 'Basic realm="AI Web Builder Demo"' },
+      });
+    }
+
+    // Cloudflare Access JWT 認証
     const jwt = c.req.header("Cf-Access-Jwt-Assertion");
     if (!jwt) {
       log.warn("Access denied: missing Cf-Access-Jwt-Assertion", {
