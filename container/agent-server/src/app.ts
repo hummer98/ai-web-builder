@@ -19,7 +19,7 @@ export function createApp() {
   const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
   const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
 
-  // 認証ミドルウェア（/health は常に除外）
+  // 認証ミドルウェア（/health, /ws は常に除外）
   app.use("*", async (c, next) => {
     if (process.env.NODE_ENV !== "production") return next();
     if (c.req.path === "/health" || c.req.path === "/ws") return next();
@@ -39,16 +39,18 @@ export function createApp() {
       });
     }
 
-    // Cloudflare Access JWT 認証
+    // Cloudflare Access JWT 認証（設定されている環境のみ）
     const jwt = c.req.header("Cf-Access-Jwt-Assertion");
-    if (!jwt) {
-      log.warn("Access denied: missing Cf-Access-Jwt-Assertion", {
-        path: c.req.path,
-        ip: c.req.header("x-forwarded-for") ?? "unknown",
-      });
-      return c.text("Unauthorized", 401);
-    }
-    return next();
+    if (jwt) return next();
+
+    // 認証手段がどちらも設定されていない場合はスキップ（デモモード）
+    if (!process.env.CLOUDFLARE_ACCESS_AUD) return next();
+
+    log.warn("Access denied: no valid auth", {
+      path: c.req.path,
+      ip: c.req.header("x-forwarded-for") ?? "unknown",
+    });
+    return c.text("Unauthorized", 401);
   });
 
   // Health check
