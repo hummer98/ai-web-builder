@@ -19,9 +19,10 @@ export function createApp() {
   const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
   const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
 
-  // 本番環境では Cloudflare Access JWT が必須（/health は除外）
+  // 本番環境では Cloudflare Access JWT が必須（/health は除外、SKIP_AUTH=true で無効化）
   app.use("*", async (c, next) => {
     if (process.env.NODE_ENV !== "production") return next();
+    if (process.env.SKIP_AUTH === "true") return next();
     if (c.req.path === "/health") return next();
     const jwt = c.req.header("Cf-Access-Jwt-Assertion");
     if (!jwt) {
