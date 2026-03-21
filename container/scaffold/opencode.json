@@ -1,7 +1,10 @@
 {
+  "model": "openrouter/google/gemini-2.5-pro-preview-06-05",
   "provider": {
     "openrouter": {
-      "api_key": "{env:OPENROUTER_API_KEY}",
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      },
       "models": {
         "google/gemini-2.5-pro-preview-06-05": {
           "name": "Gemini 2.5 Pro"
@@ -9,17 +12,14 @@
       }
     }
   },
-  "model": {
-    "default": "openrouter/google/gemini-2.5-pro-preview-06-05"
-  },
   "mcp": {
     "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp", "--headless", "--url", "http://localhost:5173/preview/"]
+      "type": "local",
+      "command": ["npx", "@playwright/mcp", "--headless", "--url", "http://localhost:5173/preview/"]
     },
     "log-reader": {
-      "command": "node",
-      "args": ["--import", "tsx", "/app/container/log-reader-mcp/src/index.ts"]
+      "type": "local",
+      "command": ["node", "--import", "tsx", "/app/container/log-reader-mcp/src/index.ts"]
     }
   }
 }
