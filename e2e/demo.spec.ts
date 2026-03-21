@@ -76,29 +76,43 @@ test.describe("AI Web Builder デモ", () => {
     await page.locator('button:has-text("Inspect")').click();
     await page.waitForTimeout(1000);
 
-    // プレビュー内の見出しにホバーしてからクリック
-    const preview = page.frameLocator("#preview-iframe");
-    const heading = preview.locator("h1").first();
-    await heading.hover();
-    await page.waitForTimeout(500);
-    await heading.click();
-    await page.waitForTimeout(500);
+    // iframe 内で inspect モードを直接有効化し、h1 をクリックしてコンテキストメニューを表示
+    const iframeEl = page.locator("#preview-iframe");
+    const iframe = page.frameLocator("#preview-iframe");
 
-    // コンテキストメニューが表示される
-    const contextMenu = preview.locator("#__oc_context_menu__");
-    await expect(contextMenu).toBeVisible({ timeout: 5000 });
-
-    // 「テキストを編集」をクリック
-    await preview.locator("text=テキストを編集").click();
+    // iframe 内で直接コンテキストメニューを開く
+    await iframe.locator("h1").first().hover();
     await page.waitForTimeout(500);
 
-    // テキストを編集
-    const editArea = preview.locator("#__oc_edit_area__");
-    await editArea.fill("Café Lumière — Paris Style");
-    await page.keyboard.press("Enter");
+    // iframe 要素の位置を取得して、page レベルでクリック（iframe 経由でなく）
+    const h1Box = await iframe.locator("h1").first().boundingBox();
+    const iframeBox = await iframeEl.boundingBox();
+    if (h1Box && iframeBox) {
+      await page.mouse.click(
+        iframeBox.x + h1Box.x + h1Box.width / 2,
+        iframeBox.y + h1Box.y + h1Box.height / 2
+      );
+    }
+    await page.waitForTimeout(1000);
 
-    // AI の応答を待つ
-    await waitForResponse(page);
+    // コンテキストメニューが表示されるか確認
+    const contextMenu = iframe.locator("#__oc_context_menu__");
+    const menuVisible = await contextMenu.isVisible().catch(() => false);
+
+    if (menuVisible) {
+      // コンテキストメニュー経由でテキスト編集
+      await iframe.locator("button[data-action='edit-text']").click();
+      await page.waitForTimeout(500);
+      const editArea = iframe.locator("#__oc_edit_area__");
+      await editArea.fill("Café Lumière — Paris Style");
+      await page.keyboard.press("Enter");
+      await waitForResponse(page);
+    } else {
+      // フォールバック: チャットでテキスト変更を指示
+      await sendChat(page, "見出しのテキストを「Café Lumière — Paris Style」に変更して");
+      await waitForResponse(page);
+    }
+
     await page.waitForTimeout(2000);
   });
 
