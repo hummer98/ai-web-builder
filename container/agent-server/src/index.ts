@@ -324,6 +324,7 @@ function handleEvent(
   sessionId: string,
   ws: { send: (data: string) => void }
 ) {
+  log.info("handleEvent", { type: event.type, props: JSON.stringify(event.properties ?? {}).slice(0, 300), expectedSession: sessionId });
   switch (event.type) {
     case "message.part.updated": {
       const { part, delta } = event.properties;
