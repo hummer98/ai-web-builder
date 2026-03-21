@@ -14,16 +14,20 @@ import { test, expect } from "@playwright/test";
 
 // AI の応答を待つヘルパー
 async function waitForResponse(page: import("@playwright/test").Page, timeout = 120_000) {
-  // "考え中..." が消えて、新しい assistant メッセージが表示されるまで待つ
+  // 1. まず "考え中..." (animate-pulse) が表示されるのを待つ
   await page.waitForFunction(
-    () => {
-      const pulses = document.querySelectorAll(".animate-pulse");
-      return pulses.length === 0;
-    },
+    () => document.querySelectorAll(".animate-pulse").length > 0,
+    { timeout: 10_000 }
+  ).catch(() => {}); // 表示されない場合もある（即座にエラーが返る等）
+
+  // 2. animate-pulse が消えるのを待つ（AI 応答完了）
+  await page.waitForFunction(
+    () => document.querySelectorAll(".animate-pulse").length === 0,
     { timeout }
   );
-  // ストリーミング完了を待つ（ブリンクカーソルが消えるまで）
-  await page.waitForTimeout(2000);
+
+  // 3. ストリーミングカーソルが消えるまで少し待つ
+  await page.waitForTimeout(3000);
 }
 
 // チャットでメッセージを送信（WS 接続待ちを含む）
