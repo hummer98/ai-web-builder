@@ -76,9 +76,11 @@ test.describe("AI Web Builder デモ", () => {
     await page.locator('button:has-text("Inspect")').click();
     await page.waitForTimeout(1000);
 
-    // プレビュー内の見出しをクリック
+    // プレビュー内の見出しにホバーしてからクリック
     const preview = page.frameLocator("#preview-iframe");
     const heading = preview.locator("h1").first();
+    await heading.hover();
+    await page.waitForTimeout(500);
     await heading.click();
     await page.waitForTimeout(500);
 
