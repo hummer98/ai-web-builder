@@ -8,7 +8,7 @@
     "dev:all": "npm-run-all --parallel dev:*",
     "dev:editor": "npm run dev --prefix editor",
     "dev:agent": "cd container/agent-server && npx tsx watch src/index.ts",
-    "dev:opencode": "cd workspace && opencode serve :4096",
+    "dev:opencode": "cd workspace && opencode serve --port 4096",
     "dev:vite": "npm run dev --prefix workspace",
     "dev:hono": "cd workspace && npx tsx watch functions/api/index.ts",
     "test": "vitest run",

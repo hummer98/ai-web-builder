@@ -67,7 +67,7 @@ cd "$WORKSPACE_DIR" && NODE_ENV=development VITE_BASE_PATH=/preview/ npx vite --
 cd "$WORKSPACE_DIR" && npx tsx watch functions/api/index.ts >> "$LOGS_DIR/hono.log" 2>&1 &
 
 # OpenCode serve (AI 編集エンジン)
-cd "$WORKSPACE_DIR" && opencode serve :4096 >> "$LOGS_DIR/opencode.log" 2>&1 &
+cd "$WORKSPACE_DIR" && opencode serve --port 4096 --hostname 0.0.0.0 >> "$LOGS_DIR/opencode.log" 2>&1 &
 
 # Agent Server (メインプロセス — フォアグラウンド)
 cd /app/container/agent-server && exec npx tsx src/index.ts 2>&1 | tee -a "$LOGS_DIR/agent-server.log"
