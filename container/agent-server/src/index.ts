@@ -324,25 +324,31 @@ function handleEvent(
   sessionId: string,
   ws: { send: (data: string) => void }
 ) {
-  log.info("handleEvent", { type: event.type, props: JSON.stringify(event.properties ?? {}).slice(0, 300), expectedSession: sessionId });
   switch (event.type) {
+    case "message.part.delta": {
+      // テキストの差分をストリーミング送信
+      const props = event.properties as { sessionID: string; delta: string; field: string };
+      if (props.sessionID !== sessionId) return;
+      if (props.field === "text" && props.delta) {
+        ws.send(JSON.stringify({ type: "stream", delta: props.delta }));
+      }
+      break;
+    }
+
     case "message.part.updated": {
-      const { part, delta } = event.properties;
+      const { part } = event.properties;
       if (part.sessionID !== sessionId) return;
 
-      if (part.type === "text" && delta) {
-        ws.send(JSON.stringify({ type: "stream", delta }));
-      } else if (part.type === "tool") {
-        if (part.state.status === "running") {
-          ws.send(JSON.stringify({ type: "status", message: part.tool }));
-        }
+      // ツール実行状態を通知
+      if (part.type === "tool" && part.state?.status === "running") {
+        ws.send(JSON.stringify({ type: "status", message: part.tool }));
       }
       break;
     }
 
     case "session.status": {
       if (event.properties.sessionID !== sessionId) return;
-      if (event.properties.status.type === "idle") {
+      if (event.properties.status?.type === "idle") {
         ws.send(JSON.stringify({ type: "stream-end" }));
         log.info("OpenCode response completed (stream)", { sessionId });
 
