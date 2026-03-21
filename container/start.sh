@@ -40,6 +40,14 @@ if [ ! -f "$WORKSPACE_DIR/package.json" ]; then
   cp -r /app/container/scaffold/. "$WORKSPACE_DIR/"
 fi
 
+# git リポジトリがなければ初期化（デモモード等）
+if [ ! -d "$WORKSPACE_DIR/.git" ]; then
+  echo "Initializing git repository..."
+  cd "$WORKSPACE_DIR" && git init && git add -A && \
+    git -c user.name="ai-web-builder[bot]" -c user.email="ai-web-builder[bot]@users.noreply.github.com" \
+    commit -m "Initial scaffold"
+fi
+
 # scaffold の package-lock.json が変わっていたら node_modules を再同期
 SCAFFOLD_LOCK="/app/container/scaffold/package-lock.json"
 WORKSPACE_LOCK="$WORKSPACE_DIR/package-lock.json"

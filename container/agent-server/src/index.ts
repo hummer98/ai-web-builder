@@ -64,7 +64,10 @@ app.get(
             // セッション作成（初回のみ）
             if (!sessionId) {
               const res = await opencode.session.create();
-              sessionId = res.data!.id;
+              log.info("OpenCode session.create response", { res: JSON.stringify(res).slice(0, 500) });
+              // SDK v1 と v2 でレスポンス形式が異なる
+              const session = res.data ?? res;
+              sessionId = session.id;
               log.info("OpenCode session created", { sessionId });
             }
 
