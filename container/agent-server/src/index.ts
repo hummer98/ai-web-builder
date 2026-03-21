@@ -304,9 +304,13 @@ async function processEventStream(
   ws: { send: (data: string) => void }
 ) {
   try {
+    log.info("Event stream started", { sessionId });
     for await (const event of stream) {
-      handleEvent(event as Event, sessionId, ws);
+      const ev = event as Event;
+      log.info("Event received", { type: ev.type, sessionId });
+      handleEvent(ev, sessionId, ws);
     }
+    log.info("Event stream ended", { sessionId });
   } catch (err) {
     log.error("Event stream error", { error: String(err) });
   }
