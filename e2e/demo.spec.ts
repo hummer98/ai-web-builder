@@ -75,7 +75,23 @@ test.describe("AI Web Builder デモ", () => {
     await page.waitForTimeout(3000); // 録画用に少し待つ
   });
 
-  test("Step 2: テキスト編集（コンテキストメニュー）", async ({ page }) => {
+  test("Step 2: ヒーロー画像を AI で生成", async ({ page }) => {
+    // ペルソナ準拠: 技術用語を使わず、友人が自然に言いそうな言葉で指示
+    await sendChat(
+      page,
+      "トップの大きい画像のところに、おしゃれなカフェの写真を入れて。パリの路地裏にありそうな温かい雰囲気で"
+    );
+    await waitForResponse(page, 180_000);
+
+    // プレビュー内にヒーロー画像が表示されていることを確認
+    const preview = page.frameLocator("#preview-iframe");
+    const heroImg = preview.locator('img[src*="/images/"]').first();
+    await expect(heroImg).toBeVisible({ timeout: 30_000 });
+
+    await page.waitForTimeout(3000); // 録画用に少し待つ
+  });
+
+  test("Step 3: テキスト編集（コンテキストメニュー）", async ({ page }) => {
     // Inspect モードを有効化
     await page.locator('button:has-text("Inspect")').click();
     await page.waitForTimeout(1000);
@@ -120,13 +136,13 @@ test.describe("AI Web Builder デモ", () => {
     await page.waitForTimeout(2000);
   });
 
-  test("Step 3: チャットでスタイル変更", async ({ page }) => {
+  test("Step 4: チャットでスタイル変更", async ({ page }) => {
     await sendChat(page, "全体の配色をダークブラウンとクリーム色のパリ風カフェカラーに変えてください");
     await waitForResponse(page, 180_000);
     await page.waitForTimeout(3000);
   });
 
-  test("Step 4: レスポンシブ確認", async ({ page }) => {
+  test("Step 5: レスポンシブ確認", async ({ page }) => {
     // Mobile 表示に切り替え
     await page.locator('button:has-text("Mobile")').click();
     await page.waitForTimeout(2000);
@@ -136,7 +152,7 @@ test.describe("AI Web Builder デモ", () => {
     await page.waitForTimeout(2000);
   });
 
-  test("Step 5: 元に戻す → 履歴", async ({ page }) => {
+  test("Step 6: 元に戻す → 履歴", async ({ page }) => {
     // 元に戻す
     await page.locator('button:has-text("元に戻す")').click();
     await page.waitForTimeout(3000);
@@ -154,7 +170,7 @@ test.describe("AI Web Builder デモ", () => {
     await page.waitForTimeout(1000);
   });
 
-  test("Step 6: ヘルプ", async ({ page }) => {
+  test("Step 7: ヘルプ", async ({ page }) => {
     // ? ボタンでヘルプを開く
     await page.locator('button:has-text("使い方")').click();
     await page.waitForTimeout(2000);

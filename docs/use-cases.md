@@ -56,12 +56,13 @@
 
 | # | ユースケース | 具体的な操作イメージ | 状態 | 備考 |
 |---|------------|-------------------|------|------|
-| 4.1 | 画像を貼り付ける | チャットに画像をドラッグ&ドロップ →「これをヒーローに使って」 | ✅ | ChatPanel に画像添付ボタン + D&D。Agent Server `/api/upload` → `public/uploads/` に保存 |
-| 4.2 | 画像 URL を指定する | 「この画像を使って: https://...」 | ✅ | OpenCode が img タグの src を設定 |
-| 4.3 | 画像を差し替える | 画像をクリック → 新画像を添付 →「これに差し替えて」 | ✅ | Source Locator で要素特定 + 画像アップロード → OpenCode が src を差し替え |
-| 4.4 | YouTube を埋め込む | 「ここに YouTube 動画を埋め込んで: https://...」 | ✅ | OpenCode が iframe を生成 |
-| 4.5 | Google Maps を埋め込む | 「お店の地図を入れて。住所は〇〇」 | ✅ | OpenCode が Maps embed を生成 |
-| 4.6 | SNS アイコンを並べる | 「フッターに Instagram と Twitter のリンクを追加して」 | ✅ | OpenCode がアイコン + リンクを生成 |
+| 4.1 | AI で画像を生成する | 「トップにおしゃれなカフェの写真を入れて」 | ✅ | nano-banana MCP (Gemini) で画像生成 → `public/images/` に保存 → `<img>` で配置。AGENTS.md にプロンプトガイドあり |
+| 4.2 | 画像を貼り付ける | チャットに画像をドラッグ&ドロップ →「これをヒーローに使って」 | ✅ | ChatPanel に画像添付ボタン + D&D。Agent Server `/api/upload` → `public/uploads/` に保存 |
+| 4.3 | 画像 URL を指定する | 「この画像を使って: https://...」 | ✅ | OpenCode が img タグの src を設定 |
+| 4.4 | 画像を差し替える | 画像をクリック → 新画像を添付 →「これに差し替えて」 | ✅ | Source Locator で要素特定 + 画像アップロード → OpenCode が src を差し替え |
+| 4.5 | YouTube を埋め込む | 「ここに YouTube 動画を埋め込んで: https://...」 | ✅ | OpenCode が iframe を生成 |
+| 4.6 | Google Maps を埋め込む | 「お店の地図を入れて。住所は〇〇」 | ✅ | OpenCode が Maps embed を生成 |
+| 4.7 | SNS アイコンを並べる | 「フッターに Instagram と Twitter のリンクを追加して」 | ✅ | OpenCode がアイコン + リンクを生成 |
 
 ---
 
