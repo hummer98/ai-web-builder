@@ -1,5 +1,5 @@
 {
-  "model": "openrouter/google/gemini-2.5-pro-preview-06-05",
+  "model": "openrouter/anthropic/claude-sonnet-4.6",
   "provider": {
     "openrouter": {
       "options": {
@@ -15,11 +15,22 @@
   "mcp": {
     "playwright": {
       "type": "local",
-      "command": ["npx", "@playwright/mcp", "--headless", "--url", "http://localhost:5173/preview/"]
+      "command": [
+        "npx",
+        "@playwright/mcp",
+        "--headless",
+        "--url",
+        "http://localhost:5173/preview/"
+      ]
     },
     "log-reader": {
       "type": "local",
-      "command": ["node", "--import", "tsx", "/app/container/log-reader-mcp/src/index.ts"]
+      "command": [
+        "node",
+        "--import",
+        "tsx",
+        "/app/container/log-reader-mcp/src/index.ts"
+      ]
     }
   }
 }
