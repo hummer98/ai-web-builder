@@ -24,7 +24,6 @@ app.get(
   upgradeWebSocket(() => {
     let opencode: ReturnType<typeof createOpencodeClient>;
     let sessionId: string | undefined;
-    let eventStream: AsyncGenerator | null = null;
 
     return {
       async onOpen(_, ws) {
@@ -82,23 +81,38 @@ app.get(
               })
             );
 
-            // イベントストリームを購読（初回のみ）
-            if (!eventStream) {
-              const sub = await opencode.event.subscribe();
-              eventStream = sub.stream;
-              processEventStream(eventStream, currentSessionId, ws);
-            }
-
-            // 非同期プロンプト送信（即座に返る、結果はイベントストリーム経由）
+            // 同期プロンプト送信（応答が返るまで待つ）
             const prompt = buildPrompt(data);
-            await opencode.session.promptAsync({
+            const result = await opencode.session.prompt({
               path: { id: currentSessionId },
               body: {
                 parts: [{ type: "text", text: prompt }],
               },
             });
 
-            log.info("OpenCode prompt sent (async)", { sessionId });
+            // 応答テキストを抽出して送信
+            const resData = (result as { data?: unknown }).data ?? result;
+            const responseParts = (resData as { parts?: { type: string; text?: string }[] }).parts ?? [];
+            const responseText = responseParts
+              .filter((p) => p.type === "text")
+              .map((p) => p.text ?? "")
+              .join("\n");
+
+            ws.send(JSON.stringify({ type: "response", message: responseText || "完了しました" }));
+            log.info("OpenCode response sent (sync)", { sessionId });
+
+            // 自動コミット + push
+            (async () => {
+              try {
+                const hash = autoCommit("AI edit");
+                if (hash) {
+                  await autoPush();
+                  ws.send(JSON.stringify({ type: "git", action: "commit", hash }));
+                }
+              } catch (err) {
+                log.error("Background git ops failed", { error: String(err) });
+              }
+            })();
           } catch (err) {
             log.error("OpenCode prompt failed", { error: String(err) });
             ws.send(
@@ -279,10 +293,6 @@ app.get(
 
       onClose() {
         log.info("WS disconnected", { sessionId });
-        if (eventStream) {
-          eventStream.return(undefined);
-          eventStream = null;
-        }
       },
 
       onError(error) {

@@ -12,5 +12,16 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:3000",
     },
+    watch: {
+      // Fly Volume (NVMe) では inotify が効かないため polling を使う
+      usePolling: true,
+      interval: 1000,
+    },
+    hmr: {
+      // Agent Server 経由でアクセスする場合の HMR WebSocket 設定
+      // iframe 内から直接 Vite に接続する
+      host: "localhost",
+      port: 5173,
+    },
   },
 });
