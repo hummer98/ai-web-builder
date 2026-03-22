@@ -42,12 +42,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // stream-end / git メッセージでプレビューを自動 reload
+  // AI 応答完了時にプレビューを自動 reload
   useEffect(() => {
     if (messages.length > prevMessagesLen.current) {
       const newMessages = messages.slice(prevMessagesLen.current);
       const shouldReload = newMessages.some(
-        (m) => m.type === "stream-end" || m.type === "git"
+        (m) => m.type === "response" || m.type === "stream-end" || m.type === "git"
       );
       if (shouldReload) {
         setPreviewRefreshKey((n) => n + 1);
