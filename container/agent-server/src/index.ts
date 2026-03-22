@@ -6,7 +6,7 @@ import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
 import { createLogger } from "./logger.js";
-import { truncateForCommit, buildPrompt, detectCommand, HELP_TEXT } from "./utils.js";
+import { buildPrompt, detectCommand, HELP_TEXT } from "./utils.js";
 import { setupHmrProxy } from "./hmr-proxy.js";
 import type { Command } from "./utils.js";
 import { createApp } from "./app.js";
@@ -24,6 +24,7 @@ app.get(
   upgradeWebSocket(() => {
     let opencode: ReturnType<typeof createOpencodeClient>;
     let sessionId: string | undefined;
+    let eventIterator: AsyncGenerator | undefined;
 
     return {
       async onOpen(_, ws) {
@@ -32,6 +33,36 @@ app.get(
         try {
           opencode = createOpencodeClient({ baseUrl: OPENCODE_URL });
           log.info("OpenCode client created", { url: OPENCODE_URL });
+
+          // イベント購読を開始（promptAsync より先に確立する必要がある）
+          const { stream } = await opencode.event.subscribe();
+          eventIterator = stream;
+
+          // server.connected を待つ
+          const iterator = stream[Symbol.asyncIterator]();
+          const first = await iterator.next();
+          if (!first.done) {
+            const ev = first.value as Event;
+            log.info("Event stream connected", { type: ev.type });
+          }
+
+          // バックグラウンドでイベントを処理し続ける
+          (async () => {
+            try {
+              while (true) {
+                const result = await iterator.next();
+                if (result.done) break;
+                const ev = result.value as Event;
+                if (ev.type === "server.heartbeat") continue;
+                if (sessionId) {
+                  handleEvent(ev, sessionId, ws);
+                }
+              }
+              log.info("Event stream ended");
+            } catch (err) {
+              log.error("Event stream error", { error: String(err) });
+            }
+          })();
         } catch (err) {
           log.error("OpenCode client creation failed", {
             error: String(err),
@@ -81,40 +112,17 @@ app.get(
               })
             );
 
-            // 同期プロンプト送信（応答が返るまで待つ）
+            // 非同期プロンプト送信（イベントストリーム経由でレスポンスを受信）
             const prompt = buildPrompt(data);
-            const result = await opencode.session.prompt({
+            await opencode.session.promptAsync({
               path: { id: currentSessionId },
               body: {
                 parts: [{ type: "text", text: prompt }],
               },
             });
-
-            // 応答テキストを抽出して送信
-            const resData = (result as { data?: unknown }).data ?? result;
-            const responseParts = (resData as { parts?: { type: string; text?: string }[] }).parts ?? [];
-            const responseText = responseParts
-              .filter((p) => p.type === "text")
-              .map((p) => p.text ?? "")
-              .join("\n");
-
-            ws.send(JSON.stringify({ type: "response", message: responseText || "完了しました" }));
-            log.info("OpenCode response sent (sync)", { sessionId });
-
-            // 自動コミット + push
-            (async () => {
-              try {
-                const hash = autoCommit("AI edit");
-                if (hash) {
-                  await autoPush();
-                  ws.send(JSON.stringify({ type: "git", action: "commit", hash }));
-                }
-              } catch (err) {
-                log.error("Background git ops failed", { error: String(err) });
-              }
-            })();
+            log.info("promptAsync sent", { sessionId: currentSessionId });
           } catch (err) {
-            log.error("OpenCode prompt failed", { error: String(err) });
+            log.error("OpenCode promptAsync failed", { error: String(err) });
             ws.send(
               JSON.stringify({
                 type: "error",
@@ -293,6 +301,11 @@ app.get(
 
       onClose() {
         log.info("WS disconnected", { sessionId });
+        // イベントストリームを終了
+        if (eventIterator) {
+          eventIterator.return(undefined).catch(() => {});
+          eventIterator = undefined;
+        }
       },
 
       onError(error) {
@@ -305,27 +318,6 @@ app.get(
 // ---------------------------------------------------------------------------
 // OpenCode SSE ストリーミング
 // ---------------------------------------------------------------------------
-
-/**
- * SSE イベントストリームを処理し、WS 経由でクライアントに転送
- */
-async function processEventStream(
-  stream: AsyncGenerator,
-  sessionId: string,
-  ws: { send: (data: string) => void }
-) {
-  try {
-    log.info("Event stream started", { sessionId });
-    for await (const event of stream) {
-      const ev = event as Event;
-      log.info("Event received", { type: ev.type, sessionId });
-      handleEvent(ev, sessionId, ws);
-    }
-    log.info("Event stream ended", { sessionId });
-  } catch (err) {
-    log.error("Event stream error", { error: String(err) });
-  }
-}
 
 /**
  * OpenCode イベントを WS メッセージに変換して送信
