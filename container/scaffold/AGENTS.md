@@ -78,6 +78,30 @@ functions/
 
 画像には必ず日本語の alt を付ける。`<div>` はレイアウトコンテナ（flex, grid 等）にのみ使う。
 
+## 画像生成（nano-banana MCP）
+
+サイトに使う画像を AI で生成できる。ストックフォトの代わりに使う。
+
+### 使い方
+
+1. `generate_image` ツールでプロンプトから画像を生成
+2. 生成された画像を `public/images/` に保存
+3. `<img src="/images/ファイル名.png" alt="説明">` で配置
+
+### プロンプトのコツ
+
+- 写実的な写真: `"A cozy café interior with warm lighting, wooden tables, and coffee cups, professional photography"`
+- イラスト風: `"Flat illustration of a hair salon, pastel colors, minimal style"`
+- アイコン: `"Simple flat icon of a coffee cup, white background, minimal"`
+
+### ルール
+
+- 生成した画像は必ず `public/images/` に保存する
+- ファイル名は英語のケバブケース（例: `hero-cafe.png`）
+- `<img>` には必ず日本語の alt を付ける
+- 人物の顔を含む画像は避ける（肖像権リスク）
+- 1つのサイトで統一感のあるスタイルを使う（写真なら全部写真、イラストなら全部イラスト）
+
 ## 編集後の必須検証
 
 すべてのコード編集後、ユーザーに応答する前に:

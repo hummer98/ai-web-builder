@@ -11,6 +11,9 @@ RUN curl -fsSL https://opencode.ai/install | bash && \
 # Playwright MCP + Chromium（AI 視覚フィードバック用）
 RUN npm i -g @playwright/mcp && npx playwright install --with-deps chromium
 
+# Nano Banana MCP（AI 画像生成用）
+RUN npm i -g nano-banana-mcp
+
 WORKDIR /app
 
 # ルート依存

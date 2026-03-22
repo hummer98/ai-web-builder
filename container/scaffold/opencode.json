@@ -31,6 +31,16 @@
         "tsx",
         "/app/container/log-reader-mcp/src/index.ts"
       ]
+    },
+    "nano-banana": {
+      "type": "local",
+      "command": [
+        "npx",
+        "nano-banana-mcp"
+      ],
+      "env": {
+        "GEMINI_API_KEY": "{env:GEMINI_API_KEY}"
+      }
     }
   }
 }
