@@ -170,16 +170,13 @@ test.describe("AI Web Builder デモ", () => {
     await page.waitForTimeout(1000);
   });
 
-  test("Step 7: ヘルプ", async ({ page }) => {
-    // ? ボタンでヘルプを開く
-    await page.locator('button:has-text("使い方")').click();
-    await page.waitForTimeout(2000);
+  test("Step 7: 使い方を聞く", async ({ page }) => {
+    // チャットで使い方を聞く → AI が即座にヘルプを返す
+    await sendChat(page, "使い方を教えて");
+    await waitForResponse(page);
 
-    await expect(page.getByRole("heading", { name: "使い方" })).toBeVisible();
-    await page.waitForTimeout(2000);
-
-    // 閉じる
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(1000);
+    // ヘルプテキストが表示される
+    await expect(page.getByText("チャットで指示")).toBeVisible({ timeout: 10_000 });
+    await page.waitForTimeout(3000);
   });
 });
