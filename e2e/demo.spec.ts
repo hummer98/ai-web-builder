@@ -171,12 +171,11 @@ test.describe("AI Web Builder デモ", () => {
   });
 
   test("Step 7: 使い方を聞く", async ({ page }) => {
-    // チャットで使い方を聞く → AI が即座にヘルプを返す（OpenCode不要、detectCommandで処理）
+    // チャットで使い方を聞く → detectCommand で即座にヘルプを返す
     await sendChat(page, "使い方");
-    await waitForResponse(page, 30_000);
 
-    // ヘルプテキストが表示される
-    await expect(page.getByText("チャットで指示")).toBeVisible({ timeout: 10_000 });
+    // ヘルプテキストが表示されるまで待つ（waitForResponse は不要、即座に返る）
+    await expect(page.getByText("チャットで指示")).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(3000);
   });
 });
