@@ -159,7 +159,7 @@ export default function ChatPanel({
     injectedCountRef.current = injectedMessages.length;
   }, [injectedMessages]);
 
-  // AI タイムアウト通知（60秒でソフト、120秒でハード）
+  // AI タイムアウト通知（3分でソフト、5分でハード）
   useEffect(() => {
     if (!loading && !streaming) return;
 
@@ -171,7 +171,7 @@ export default function ChatPanel({
           content: "AI の応答に時間がかかっています。しばらくお待ちください。",
         },
       ]);
-    }, 60_000);
+    }, 180_000);
 
     const hardId = setTimeout(() => {
       setChat((prev) => [
@@ -185,7 +185,7 @@ export default function ChatPanel({
       setLoading(false);
       setStreaming(false);
       setStatusText(null);
-    }, 120_000);
+    }, 300_000);
 
     return () => {
       clearTimeout(softId);
