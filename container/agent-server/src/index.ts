@@ -7,6 +7,7 @@ import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
 import { createLogger } from "./logger.js";
 import { truncateForCommit, buildPrompt, detectCommand, HELP_TEXT } from "./utils.js";
+import { setupHmrProxy } from "./hmr-proxy.js";
 import type { Command } from "./utils.js";
 import { createApp } from "./app.js";
 
@@ -516,5 +517,8 @@ const port = 8080;
 const server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
   log.info(`Agent Server started on 0.0.0.0:${port}`);
 });
+
+// Vite HMR WebSocket proxy（injectWebSocket の前に登録）
+setupHmrProxy(server);
 
 injectWebSocket(server);

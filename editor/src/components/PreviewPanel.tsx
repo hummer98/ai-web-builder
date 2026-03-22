@@ -25,9 +25,10 @@ type Props = {
   onReplaceImage?: (context: ElementContext, fileName: string, fileData: string) => void;
   onDeleteElement?: (context: ElementContext) => void;
   inspectRequested?: number; // increment to toggle inspect from parent
+  refreshKey?: number; // increment to force iframe reload
 };
 
-export default function PreviewPanel({ onElementSelected, onEditText, onReplaceImage, onDeleteElement, inspectRequested }: Props) {
+export default function PreviewPanel({ onElementSelected, onEditText, onReplaceImage, onDeleteElement, inspectRequested, refreshKey }: Props) {
   const [sizeIndex, setSizeIndex] = useState(0);
   const [inspectMode, setInspectMode] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -74,6 +75,15 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
       toggleInspect();
     }
   }, [inspectRequested]);
+
+  // refreshKey 変更時に iframe を reload（初回レンダリングはスキップ）
+  const prevRefreshKey = useRef(refreshKey);
+  useEffect(() => {
+    if (prevRefreshKey.current !== refreshKey) {
+      prevRefreshKey.current = refreshKey;
+      iframeRef.current?.contentWindow?.location.reload();
+    }
+  }, [refreshKey]);
 
   return (
     <div className="flex flex-col h-full bg-gray-800">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ChatPanel from "./components/ChatPanel";
 import type { ChatMessage } from "./components/ChatPanel";
 import PreviewPanel from "./components/PreviewPanel";
@@ -17,6 +17,8 @@ export default function App() {
   const [injectedMessages, setInjectedMessages] = useState<ChatMessage[]>([]);
   const [helpOpen, setHelpOpen] = useState(false);
   const [inspectRequested, setInspectRequested] = useState(0);
+  const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
+  const prevMessagesLen = useRef(0);
 
   // ? キーでヘルプを開く、Escape で閉じる
   useEffect(() => {
@@ -39,6 +41,20 @@ export default function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  // stream-end / git メッセージでプレビューを自動 reload
+  useEffect(() => {
+    if (messages.length > prevMessagesLen.current) {
+      const newMessages = messages.slice(prevMessagesLen.current);
+      const shouldReload = newMessages.some(
+        (m) => m.type === "stream-end" || m.type === "git"
+      );
+      if (shouldReload) {
+        setPreviewRefreshKey((n) => n + 1);
+      }
+    }
+    prevMessagesLen.current = messages.length;
+  }, [messages]);
 
   const injectMessage = useCallback((role: ChatMessage["role"], content: string) => {
     setInjectedMessages((prev) => [...prev, { role, content }]);
@@ -136,6 +152,7 @@ export default function App() {
           onReplaceImage={handleReplaceImage}
           onDeleteElement={handleDeleteElement}
           inspectRequested={inspectRequested}
+          refreshKey={previewRefreshKey}
         />
       </div>
 
