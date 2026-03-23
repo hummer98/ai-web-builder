@@ -83,9 +83,9 @@ test.describe("AI Web Builder デモ", () => {
     );
     await waitForResponse(page, 180_000);
 
-    // プレビュー内にヒーロー画像が表示されていることを確認
+    // プレビュー内に画像が表示されていることを確認（Unsplash URL or /images/ どちらでも）
     const preview = page.frameLocator("#preview-iframe");
-    const heroImg = preview.locator('img[src*="/images/"]').first();
+    const heroImg = preview.locator('img[src]').first();
     await expect(heroImg).toBeVisible({ timeout: 30_000 });
 
     await page.waitForTimeout(3000); // 録画用に少し待つ
