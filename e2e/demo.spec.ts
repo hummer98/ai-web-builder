@@ -137,7 +137,7 @@ test.describe("AI Web Builder デモ", () => {
   });
 
   test("Step 4: チャットでスタイル変更", async ({ page }) => {
-    await sendChat(page, "全体の配色をダークブラウンとクリーム色のパリ風カフェカラーに変えてください");
+    await sendChat(page, "全体の雰囲気を明るくして。白とミントグリーンを基調にした爽やかな感じにして");
     await waitForResponse(page, 180_000);
     await page.waitForTimeout(3000);
   });
