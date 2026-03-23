@@ -175,7 +175,7 @@ test.describe("AI Web Builder デモ", () => {
     await sendChat(page, "使い方");
 
     // ヘルプテキストが表示されるまで待つ（waitForResponse は不要、即座に返る）
-    await expect(page.getByText("チャットで指示")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("画像を添付")).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(3000);
   });
 });
