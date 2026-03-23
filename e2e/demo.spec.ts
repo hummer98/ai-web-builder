@@ -65,7 +65,7 @@ test.describe("AI Web Builder デモ", () => {
 
   test("Step 1: サイト生成", async ({ page }) => {
     // カフェサイトを生成
-    await sendChat(page, "おしゃれなカフェのサイトを作ってください。店名は「Café Lumière」、フレンチスタイルのカフェです。ヒーローセクション、メニュー、アクセス、お問い合わせの4セクション構成でお願いします。");
+    await sendChat(page, "おしゃれなカフェのサイトを作って。店名は Café Lumière。パリの路地裏にありそうなフレンチカフェ。");
     await waitForResponse(page, 180_000);
 
     // プレビューにサイトが表示されていることを確認
@@ -79,7 +79,7 @@ test.describe("AI Web Builder デモ", () => {
     // ペルソナ準拠: 技術用語を使わず、友人が自然に言いそうな言葉で指示
     await sendChat(
       page,
-      "トップの大きい画像のところに、おしゃれなカフェの写真を入れて。パリの路地裏にありそうな温かい雰囲気で"
+      "トップに使う写真を作って。パリのカフェのテラス席で、コーヒーとクロワッサンが並んでいる感じ。温かい光で。"
     );
     await waitForResponse(page, 180_000);
 
