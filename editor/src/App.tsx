@@ -47,7 +47,7 @@ export default function App() {
     if (messages.length > prevMessagesLen.current) {
       const newMessages = messages.slice(prevMessagesLen.current);
       const shouldReload = newMessages.some(
-        (m) => m.type === "response" || m.type === "stream-end" || m.type === "git"
+        (m) => m.type === "response" || m.type === "stream-end" || m.type === "git" || m.type === "file-changed"
       );
       if (shouldReload) {
         setPreviewRefreshKey((n) => n + 1);

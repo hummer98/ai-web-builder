@@ -342,9 +342,13 @@ function handleEvent(
       const { part } = event.properties;
       if (part.sessionID !== sessionId) return;
 
-      // ツール実行状態を通知
-      if (part.type === "tool" && part.state?.status === "running") {
-        ws.send(JSON.stringify({ type: "status", message: part.tool }));
+      if (part.type === "tool") {
+        if (part.state?.status === "running") {
+          ws.send(JSON.stringify({ type: "status", message: part.tool }));
+        } else if (part.state?.status === "completed") {
+          // ツール完了 → ファイル変更の可能性 → プレビュー更新トリガー
+          ws.send(JSON.stringify({ type: "file-changed" }));
+        }
       }
       break;
     }
