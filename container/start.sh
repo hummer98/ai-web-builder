@@ -65,6 +65,17 @@ cp -r /app/container/scaffold/plugins/. "$WORKSPACE_DIR/plugins/"
 cp /app/container/scaffold/opencode.json "$WORKSPACE_DIR/opencode.json"
 cp /app/container/scaffold/AGENTS.md "$WORKSPACE_DIR/AGENTS.md"
 
+# MCP の nano-banana に GEMINI_API_KEY を注入（環境変数展開が必要）
+if [ -n "$GEMINI_API_KEY" ]; then
+  python3 -c "
+import json
+with open('$WORKSPACE_DIR/opencode.json') as f: data = json.load(f)
+if 'nano-banana' in data.get('mcp', {}):
+    data['mcp']['nano-banana']['environment'] = {'GEMINI_API_KEY': '$GEMINI_API_KEY'}
+with open('$WORKSPACE_DIR/opencode.json', 'w') as f: json.dump(data, f, indent=2)
+" 2>/dev/null
+fi
+
 # Vite のキャッシュクリア（NODE_ENV 変更時に必要）
 rm -rf "$WORKSPACE_DIR/node_modules/.vite"
 
