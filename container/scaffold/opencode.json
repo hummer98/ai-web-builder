@@ -37,10 +37,7 @@
       "command": [
         "npx",
         "nano-banana-mcp"
-      ],
-      "environment": {
-        "GEMINI_API_KEY": "{env:GEMINI_API_KEY}"
-      }
+      ]
     }
   }
 }
