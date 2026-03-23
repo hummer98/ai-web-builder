@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import type { WSMessage } from "../hooks/useWebSocket";
 import type { ElementContext } from "./PreviewPanel";
 
@@ -402,17 +403,55 @@ export default function ChatPanel({
         {chat.map((msg, i) => (
           <div
             key={i}
-            className={`text-sm whitespace-pre-wrap ${
+            className={`text-sm ${
               msg.role === "user"
-                ? "bg-blue-600/20 text-blue-100 rounded-lg px-3 py-2 ml-8"
+                ? "whitespace-pre-wrap bg-blue-600/20 text-blue-100 rounded-lg px-3 py-2 ml-8"
                 : msg.role === "status"
-                  ? "bg-green-600/20 text-green-200 rounded-lg px-3 py-2 text-center"
+                  ? "whitespace-pre-wrap bg-green-600/20 text-green-200 rounded-lg px-3 py-2 text-center"
                   : "bg-gray-800 text-gray-200 rounded-lg px-3 py-2 mr-8"
             }`}
           >
-            {msg.content}
-            {streaming && i === chat.length - 1 && msg.role === "assistant" && (
-              <span className="inline-block w-1.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
+            {msg.role === "assistant" ? (
+              <div className="markdown-body">
+                <ReactMarkdown
+                  components={{
+                    pre: ({ children }) => (
+                      <pre className="bg-gray-900 rounded p-2 my-2 overflow-x-auto text-xs">{children}</pre>
+                    ),
+                    code: ({ children, className }) => {
+                      const isBlock = className?.startsWith("language-");
+                      return isBlock ? (
+                        <code className={className}>{children}</code>
+                      ) : (
+                        <code className="bg-gray-900 px-1 py-0.5 rounded text-xs">{children}</code>
+                      );
+                    },
+                    h1: ({ children }) => <h1 className="text-lg font-bold mt-3 mb-1">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-base font-bold mt-3 mb-1">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-sm font-bold mt-2 mb-1">{children}</h3>,
+                    ul: ({ children }) => <ul className="list-disc pl-4 my-1">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal pl-4 my-1">{children}</ol>,
+                    li: ({ children }) => <li className="my-0.5">{children}</li>,
+                    p: ({ children }) => <p className="my-1">{children}</p>,
+                    a: ({ href, children }) => (
+                      <a href={href} className="text-blue-400 underline" target="_blank" rel="noreferrer">{children}</a>
+                    ),
+                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-2 border-gray-600 pl-2 my-1 text-gray-400">{children}</blockquote>
+                    ),
+                  }}
+                >
+                  {msg.content}
+                </ReactMarkdown>
+                {streaming && i === chat.length - 1 && (
+                  <span className="inline-block w-1.5 h-4 bg-gray-400 animate-pulse ml-0.5 align-text-bottom" />
+                )}
+              </div>
+            ) : (
+              <>
+                {msg.content}
+              </>
             )}
           </div>
         ))}
