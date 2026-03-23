@@ -67,12 +67,14 @@ cp /app/container/scaffold/AGENTS.md "$WORKSPACE_DIR/AGENTS.md"
 
 # MCP の nano-banana に GEMINI_API_KEY を注入（環境変数展開が必要）
 if [ -n "$GEMINI_API_KEY" ]; then
-  python3 -c "
-import json
-with open('$WORKSPACE_DIR/opencode.json') as f: data = json.load(f)
-if 'nano-banana' in data.get('mcp', {}):
-    data['mcp']['nano-banana']['environment'] = {'GEMINI_API_KEY': '$GEMINI_API_KEY'}
-with open('$WORKSPACE_DIR/opencode.json', 'w') as f: json.dump(data, f, indent=2)
+  node -e "
+const fs = require('fs');
+const f = '$WORKSPACE_DIR/opencode.json';
+const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+if (d.mcp && d.mcp['nano-banana']) {
+  d.mcp['nano-banana'].environment = { GEMINI_API_KEY: '$GEMINI_API_KEY' };
+}
+fs.writeFileSync(f, JSON.stringify(d, null, 2));
 " 2>/dev/null
 fi
 
