@@ -6,7 +6,8 @@ dist/
 *.log
 *.swp
 .DS_Store
-.claude/
+.claude/*
+!.claude/agents/
 logs/
 workspace/
 e2e/results/
