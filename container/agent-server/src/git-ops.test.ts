@@ -23,6 +23,9 @@ describe("git-ops", () => {
     gitInTmp("init");
     gitInTmp("config", "user.name", "Test User");
     gitInTmp("config", "user.email", "test@example.com");
+    // 署名設定がグローバルで有効な環境でもテスト用 repo では無効化する
+    gitInTmp("config", "commit.gpgsign", "false");
+    gitInTmp("config", "tag.gpgsign", "false");
 
     vi.stubEnv("WORKSPACE_DIR", tmpDir);
     vi.resetModules();

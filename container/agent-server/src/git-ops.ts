@@ -45,13 +45,19 @@ export function autoCommit(message: string): string | null {
   return hash;
 }
 
+export type AutoPushResult =
+  | { ok: true }
+  | { ok: false; reason: "not-configured" | "push-failed"; error?: string };
+
 /**
  * GitHub に push（App トークンで認証）
+ *
+ * 結果を返し、例外は投げない。呼び出し側が失敗をユーザー通知などに利用できる。
  */
-export async function autoPush(): Promise<void> {
+export async function autoPush(): Promise<AutoPushResult> {
   if (!isGitHubAppConfigured()) {
     log.warn("GitHub App not configured, skipping push");
-    return;
+    return { ok: false, reason: "not-configured" };
   }
 
   try {
@@ -66,8 +72,10 @@ export async function autoPush(): Promise<void> {
 
     git("push", authedUrl, "HEAD:main");
     log.info("Auto-pushed to GitHub");
+    return { ok: true };
   } catch (err) {
     log.error("Auto-push failed", { error: String(err) });
+    return { ok: false, reason: "push-failed", error: String(err) };
   }
 }
 

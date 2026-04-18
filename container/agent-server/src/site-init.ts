@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { isAbsolute, resolve, sep } from "node:path";
 import { join } from "node:path";
 import { getOctokit, getInstallationToken, isGitHubAppConfigured } from "./github-app.js";
 import { createLogger } from "./logger.js";
@@ -8,6 +9,26 @@ const log = createLogger("agent-server");
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
 const SCAFFOLD_DIR = join(import.meta.dirname, "../../scaffold");
+
+/**
+ * `rm -rf` などの破壊的操作の前に、対象が意図したワークスペース配下であることを確認する。
+ *
+ * - 空文字 / "/" / ルート直下を拒否する
+ * - シンボリックリンクの影響を除いた絶対パスで検査する
+ * - WORKSPACE_DIR から派生しない環境変数（例: `.`）での誤爆を防ぐ
+ */
+export function assertSafeWorkspacePath(target: string): string {
+  if (!target || target === "/" || target === sep) {
+    throw new Error(`Refusing to operate on unsafe path: ${JSON.stringify(target)}`);
+  }
+  const absolute = isAbsolute(target) ? resolve(target) : resolve(process.cwd(), target);
+  // ルート直下（例: "/workspace"）は許可するが、"/" 自体やそれより浅いパスは拒否
+  const segments = absolute.split(sep).filter((s) => s.length > 0);
+  if (segments.length === 0) {
+    throw new Error(`Refusing to operate on root: ${absolute}`);
+  }
+  return absolute;
+}
 
 function run(cmd: string, args: string[], cwd: string): string {
   return execFileSync(cmd, args, {
@@ -130,7 +151,9 @@ export async function importExistingRepo(
 
       // clone 先が既にある場合は削除してから
       if (existsSync(workspacePath)) {
-        execFileSync("rm", ["-rf", workspacePath]);
+        const safePath = assertSafeWorkspacePath(workspacePath);
+        log.info("Removing existing workspace before clone", { path: safePath });
+        rmSync(safePath, { recursive: true, force: true });
       }
 
       run("git", ["clone", cloneUrl, workspacePath], ".");
