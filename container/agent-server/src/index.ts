@@ -2,14 +2,15 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event } from "@opencode-ai/sdk";
-import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from "./git-ops.js";
+import { autoCommit, autoPush, getHistory, revertToCommit, undoLastCommit } from "./git-ops.js";
 import { deploy } from "./deploy.js";
-import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
+import { createNewSite, importExistingRepo } from "./site-init.js";
 import { createLogger } from "./logger.js";
-import { buildPrompt, detectCommand, HELP_TEXT } from "./utils.js";
+import { buildPrompt, detectCommand } from "./utils.js";
 import { setupHmrProxy } from "./hmr-proxy.js";
-import type { Command } from "./utils.js";
 import { createApp } from "./app.js";
+import { parseWsMessage } from "./ws-schema.js";
+import { handleCommand, notifyPushResult } from "./ws-handlers.js";
 
 const log = createLogger("agent-server");
 const app = createApp();
@@ -17,6 +18,7 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
 const SITE_NAME = process.env.SITE_DOMAIN ?? "guest-site";
+const DEFAULT_OWNER = "hummer98";
 
 // WebSocket endpoint
 app.get(
@@ -77,7 +79,24 @@ app.get(
       },
 
       async onMessage(event, ws) {
-        const data = JSON.parse(event.data as string);
+        const parsed = parseWsMessage(event.data as string);
+        if (!parsed.ok) {
+          log.warn("Invalid WS message rejected", {
+            reason: parsed.reason,
+            detail: parsed.detail.slice(0, 200),
+          });
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message:
+                parsed.reason === "invalid-json"
+                  ? "メッセージの形式が正しくありません"
+                  : "送信された内容を処理できませんでした",
+            })
+          );
+          return;
+        }
+        const data = parsed.value;
         log.info("WS message received", { type: data.type });
 
         if (data.type === "chat") {
@@ -87,7 +106,7 @@ app.get(
               const cmd = detectCommand(data.message);
               if (cmd) {
                 log.info("Command detected", { command: cmd.type });
-                await handleCommand(cmd, ws);
+                await handleCommand(cmd, ws, { siteName: SITE_NAME, defaultOwner: DEFAULT_OWNER });
                 return;
               }
             }
@@ -144,10 +163,8 @@ app.get(
                 })
               );
               log.info("Undo completed", { hash });
-              // undo 後も push（バックグラウンド）
-              autoPush().catch((err) =>
-                log.error("Push after undo failed", { error: String(err) })
-              );
+              // undo 後も push（バックグラウンド）。失敗時は WS で通知する
+              autoPush().then((result) => notifyPushResult(result, "undo", ws));
             } else {
               ws.send(
                 JSON.stringify({ type: "error", message: "元に戻す変更がありません" })
@@ -189,10 +206,8 @@ app.get(
                 })
               );
               log.info("Revert to commit completed", { target: data.hash, newHash });
-              // revert 後も push（バックグラウンド）
-              autoPush().catch((err) =>
-                log.error("Push after revert failed", { error: String(err) })
-              );
+              // revert 後も push（バックグラウンド）。失敗時は WS で通知する
+              autoPush().then((result) => notifyPushResult(result, "revert", ws));
             } else {
               ws.send(
                 JSON.stringify({ type: "error", message: "指定の状態に戻せませんでした" })
@@ -364,8 +379,9 @@ function handleEvent(
           try {
             const hash = autoCommit("AI edit");
             if (hash) {
-              await autoPush();
               ws.send(JSON.stringify({ type: "git", action: "commit", hash }));
+              const result = await autoPush();
+              notifyPushResult(result, "edit", ws);
             }
           } catch (err) {
             log.error("Background git ops failed", { error: String(err) });
@@ -380,140 +396,6 @@ function handleEvent(
       const error = event.properties.error;
       const errorMsg = error && "data" in error ? (error as { data: { message: string } }).data.message : "Unknown error";
       ws.send(JSON.stringify({ type: "error", message: `AI error: ${errorMsg}` }));
-      break;
-    }
-  }
-}
-
-/**
- * 検出されたコマンドを実行し、結果を WebSocket で送信する。
- */
-async function handleCommand(
-  cmd: Command,
-  ws: { send: (data: string) => void }
-): Promise<void> {
-  switch (cmd.type) {
-    case "undo": {
-      ws.send(JSON.stringify({ type: "status", message: "undoing" }));
-      const hash = undoLastCommit();
-      if (hash) {
-        autoPush().catch(() => {});
-        ws.send(
-          JSON.stringify({
-            type: "response",
-            message: `変更を元に戻しました (commit: ${hash})`,
-          })
-        );
-      } else {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "元に戻せる変更がありませんでした",
-          })
-        );
-      }
-      break;
-    }
-
-    case "deploy": {
-      ws.send(JSON.stringify({ type: "status", message: "deploying" }));
-      const result = await deploy(SITE_NAME);
-      if (result.success) {
-        ws.send(
-          JSON.stringify({
-            type: "response",
-            message: result.pagesUrl
-              ? `サイトを公開しました！\n${result.pagesUrl}`
-              : "サイトを公開しました！",
-          })
-        );
-      } else {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: `公開に失敗しました: ${result.error}`,
-          })
-        );
-      }
-      break;
-    }
-
-    case "create": {
-      ws.send(JSON.stringify({ type: "status", message: "creating" }));
-      try {
-        const result = await createNewSite("hummer98", cmd.siteName);
-        if (result.success) {
-          ws.send(
-            JSON.stringify({
-              type: "site-init",
-              action: "created",
-              repoUrl: result.repoUrl,
-            })
-          );
-        } else {
-          ws.send(
-            JSON.stringify({ type: "error", message: result.error })
-          );
-        }
-      } catch (err) {
-        ws.send(
-          JSON.stringify({ type: "error", message: `サイト作成に失敗しました: ${err}` })
-        );
-      }
-      break;
-    }
-
-    case "help": {
-      ws.send(JSON.stringify({
-        type: "response",
-        message: HELP_TEXT,
-      }));
-      break;
-    }
-
-    case "import": {
-      ws.send(JSON.stringify({ type: "status", message: "importing" }));
-      try {
-        const result = await importExistingRepo("hummer98", cmd.repoName);
-        if (result.success) {
-          ws.send(
-            JSON.stringify({
-              type: "site-init",
-              action: "imported",
-              repoUrl: result.repoUrl,
-            })
-          );
-        } else {
-          ws.send(
-            JSON.stringify({ type: "error", message: result.error })
-          );
-        }
-      } catch (err) {
-        ws.send(
-          JSON.stringify({ type: "error", message: `リポジトリ取り込みに失敗しました: ${err}` })
-        );
-      }
-      break;
-    }
-
-    case "reset": {
-      ws.send(JSON.stringify({ type: "status", message: "resetting" }));
-      const result = await resetWorkspace();
-      if (result.success) {
-        ws.send(
-          JSON.stringify({
-            type: "response",
-            message: "ワークスペースを初期状態にリセットしました",
-          })
-        );
-      } else {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: `リセットに失敗しました: ${result.error}`,
-          })
-        );
-      }
       break;
     }
   }
