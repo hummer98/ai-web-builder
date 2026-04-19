@@ -62,18 +62,22 @@ describe("buildPrompt", () => {
     expect(result).toContain("## ユーザーの指示\n色を変えて");
   });
 
-  it("imageUrl 付き", () => {
+  it("imageUrl 付き — multimodal ガイダンス文言を含み、旧 URL 行は含まない", () => {
     const result = buildPrompt({
       message: "この画像を使って",
       imageUrl: "/uploads/test.png",
     });
     expect(result).toContain("## 添付画像");
-    expect(result).toContain("- URL: /uploads/test.png");
-    expect(result).toContain("この画像をサイトで使用してください。");
+    expect(result).toContain("read ツールで読む必要はありません");
+    expect(result).toContain("public/uploads/");
+    expect(result).toContain('<img src="/uploads/test.png"');
     expect(result).toContain("## ユーザーの指示\nこの画像を使って");
+    // 旧フォーマット（text-only URL）は撤廃済み
+    expect(result).not.toContain("- URL: /uploads/test.png");
+    expect(result).not.toContain("この画像をサイトで使用してください。");
   });
 
-  it("elementContext + imageUrl の両方", () => {
+  it("elementContext + imageUrl の両方 — 両セクションが独立して出る", () => {
     const result = buildPrompt({
       message: "この画像に差し替えて",
       imageUrl: "/uploads/hero.jpg",
@@ -85,8 +89,16 @@ describe("buildPrompt", () => {
     expect(result).toContain("## 対象要素");
     expect(result).toContain("- ID: img-1");
     expect(result).toContain("## 添付画像");
-    expect(result).toContain("- URL: /uploads/hero.jpg");
+    expect(result).toContain("read ツールで読む必要はありません");
+    expect(result).toContain('<img src="/uploads/hero.jpg"');
     expect(result).toContain("## ユーザーの指示\nこの画像に差し替えて");
+    expect(result).not.toContain("- URL: /uploads/hero.jpg");
+  });
+
+  it("imageUrl なし — 添付画像セクションが一切出ない", () => {
+    const result = buildPrompt({ message: "ヘッダーを青くして" });
+    expect(result).not.toContain("## 添付画像");
+    expect(result).not.toContain("read ツールで読む必要はありません");
   });
 
   it("elementContext なし（空オブジェクト）", () => {

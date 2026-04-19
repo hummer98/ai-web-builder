@@ -6,10 +6,11 @@ import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
 import { createLogger } from "./logger.js";
-import { buildPrompt, detectCommand, HELP_TEXT } from "./utils.js";
+import { detectCommand, HELP_TEXT } from "./utils.js";
 import { setupHmrProxy } from "./hmr-proxy.js";
 import type { Command } from "./utils.js";
 import { createApp } from "./app.js";
+import { handleChatMessage } from "./chat-handler.js";
 
 const log = createLogger("agent-server");
 const app = createApp();
@@ -17,6 +18,7 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
 const SITE_NAME = process.env.SITE_DOMAIN ?? "guest-site";
+const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
 
 // WebSocket endpoint
 app.get(
@@ -81,55 +83,25 @@ app.get(
         log.info("WS message received", { type: data.type });
 
         if (data.type === "chat") {
-          try {
-            // コマンド判定（要素コンテキストがない場合のみ）
-            if (!data.elementContext?.ocId) {
-              const cmd = detectCommand(data.message);
-              if (cmd) {
-                log.info("Command detected", { command: cmd.type });
-                await handleCommand(cmd, ws);
-                return;
-              }
+          // コマンド判定（要素コンテキストがない場合のみ）
+          if (!data.elementContext?.ocId) {
+            const cmd = detectCommand(data.message);
+            if (cmd) {
+              log.info("Command detected", { command: cmd.type });
+              await handleCommand(cmd, ws);
+              return;
             }
-
-            // セッション作成（初回のみ）
-            if (!sessionId) {
-              const res = await opencode.session.create();
-              log.info("OpenCode session.create response", { res: JSON.stringify(res).slice(0, 500) });
-              // SDK v1 と v2 でレスポンス形式が異なる
-              const session = res.data ?? res;
-              sessionId = session.id;
-              log.info("OpenCode session created", { sessionId });
-            }
-
-            const currentSessionId = sessionId;
-
-            // ユーザーの指示を通知
-            ws.send(
-              JSON.stringify({
-                type: "status",
-                message: "thinking",
-              })
-            );
-
-            // 非同期プロンプト送信（イベントストリーム経由でレスポンスを受信）
-            const prompt = buildPrompt(data);
-            await opencode.session.promptAsync({
-              path: { id: currentSessionId },
-              body: {
-                parts: [{ type: "text", text: prompt }],
-              },
-            });
-            log.info("promptAsync sent", { sessionId: currentSessionId });
-          } catch (err) {
-            log.error("OpenCode promptAsync failed", { error: String(err) });
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: `AI error: ${err}`,
-              })
-            );
           }
+
+          await handleChatMessage(data, {
+            opencode,
+            ws,
+            workspaceDir: WORKSPACE_DIR,
+            getSessionId: () => sessionId,
+            setSessionId: (id) => {
+              sessionId = id;
+            },
+          });
         }
 
         if (data.type === "undo") {

@@ -40,9 +40,15 @@ export function buildPrompt(data: {
   }
 
   if (data.imageUrl) {
+    const filename = data.imageUrl.replace(/^\/?uploads\//, "");
     parts.push("## 添付画像");
-    parts.push(`- URL: ${data.imageUrl}`);
-    parts.push("この画像をサイトで使用してください。");
+    parts.push(
+      "このメッセージに画像そのものが添付されています。read ツールで読む必要はありません。"
+    );
+    parts.push(
+      `画像は \`public/uploads/${filename}\` に保存済みです。` +
+        `サイトに配置する場合は \`<img src="/uploads/${filename}" alt="日本語の説明">\` を使ってください。`
+    );
     parts.push("");
   }
 
