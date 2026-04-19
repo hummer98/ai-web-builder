@@ -62,16 +62,32 @@ npm run dev     # 4プロセス並列起動
 
 ## ログ
 
-全プロセスのログは `logs/` に JSON Lines 形式で出力。共通フィールド: `ts`, `level`, `service`, `msg`
+### ローカル開発
 
-```
-logs/
-├── agent-server.log
-├── opencode.log
-├── vite.log
-├── hono.log
-└── deploy.log
-```
+- Agent Server: `logs/agent-server.log` に JSON Lines で追記 (共通フィールド: `ts`, `level`, `service`, `msg`)。同内容を stdout にも出力
+- OpenCode / Vite / Hono: `npm run dev` (npm-run-all) のターミナル集約出力のみ（ファイルには書かれない）
+
+### 本番 (Fly.io)
+
+- `container/start.sh` で 4 プロセスすべての stdout/stderr を `/app/logs/*.log` と Fly stdout の両方に流している (`tee -a`)
+- `flyctl logs -a ai-web-builder` で 4 プロセスが **混在** で流れる
+  - agent-server 行は JSON Lines (`service` フィールドで識別可能)
+  - opencode / vite / hono 行はプレーンテキスト（プレフィックスは付与していない）
+- ログファイルを直接見たい場合:
+
+    ```bash
+    flyctl ssh console -a ai-web-builder
+    tail -f /app/logs/*.log
+    ```
+
+- `/app/logs/` は Machine 再起動 / autostop 起動で **消える**（root FS は ephemeral）。過去ログが必要な場合は `flyctl logs` から検索する
+
+### TODO (今回は非対応)
+
+- `/app/logs` を Fly Volume にマウントして永続化する
+- `logrotate` で肥大化を防ぐ
+- opencode / vite / hono の出力を JSON Lines に揃え、`service` フィールドでフィルタ可能にする
+- プロセス名プレフィックスの付与 (`[opencode]` 等) で `flyctl logs` を読みやすくする
 
 ## AI フィードバックループ (必須)
 

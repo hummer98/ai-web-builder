@@ -82,13 +82,16 @@ fi
 rm -rf "$WORKSPACE_DIR/node_modules/.vite"
 
 # Vite Dev Server (ゲストサイト) — development モードで起動、base=/preview/
-cd "$WORKSPACE_DIR" && NODE_ENV=development VITE_BASE_PATH=/preview/ npx vite --host 0.0.0.0 --port 5173 >> "$LOGS_DIR/vite.log" 2>&1 &
+# stdout/stderr を Fly stdout と $LOGS_DIR/vite.log の両方に流す
+(cd "$WORKSPACE_DIR" && NODE_ENV=development VITE_BASE_PATH=/preview/ npx vite --host 0.0.0.0 --port 5173 2>&1 | tee -a "$LOGS_DIR/vite.log") &
 
 # Hono Dev Server (バックエンド API)
-cd "$WORKSPACE_DIR" && npx tsx watch functions/api/index.ts >> "$LOGS_DIR/hono.log" 2>&1 &
+# stdout/stderr を Fly stdout と $LOGS_DIR/hono.log の両方に流す
+(cd "$WORKSPACE_DIR" && npx tsx watch functions/api/index.ts 2>&1 | tee -a "$LOGS_DIR/hono.log") &
 
 # OpenCode serve (AI 編集エンジン)
-cd "$WORKSPACE_DIR" && opencode serve --port 4096 --hostname 0.0.0.0 >> "$LOGS_DIR/opencode.log" 2>&1 &
+# stdout/stderr を Fly stdout と $LOGS_DIR/opencode.log の両方に流す
+(cd "$WORKSPACE_DIR" && opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | tee -a "$LOGS_DIR/opencode.log") &
 
 # Agent Server (メインプロセス — フォアグラウンド)
 cd /app/container/agent-server && exec npx tsx src/index.ts 2>&1 | tee -a "$LOGS_DIR/agent-server.log"
