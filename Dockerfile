@@ -34,6 +34,12 @@ RUN cd editor && npm install
 COPY editor/ editor/
 RUN cd editor && npx vite build
 
+# ビルダー共通 instructions（AGENTS.md にマージされる md ファイル）
+COPY container/instructions/ container/instructions/
+
+# opencode.json 後処理スクリプト（start.sh / site-init.ts 両方から利用）
+COPY container/opencode-postprocess.mjs container/opencode-postprocess.mjs
+
 # Scaffold の依存を事前インストール（新規サイト作成時にコピーされる）
 COPY container/scaffold/ container/scaffold/
 RUN cd container/scaffold && npm install

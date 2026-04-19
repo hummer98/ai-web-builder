@@ -65,18 +65,11 @@ cp -r /app/container/scaffold/plugins/. "$WORKSPACE_DIR/plugins/"
 cp /app/container/scaffold/opencode.json "$WORKSPACE_DIR/opencode.json"
 cp /app/container/scaffold/AGENTS.md "$WORKSPACE_DIR/AGENTS.md"
 
-# MCP の nano-banana に GEMINI_API_KEY を注入（環境変数展開が必要）
-if [ -n "$GEMINI_API_KEY" ]; then
-  node -e "
-const fs = require('fs');
-const f = '$WORKSPACE_DIR/opencode.json';
-const d = JSON.parse(fs.readFileSync(f, 'utf8'));
-if (d.mcp && d.mcp['nano-banana']) {
-  d.mcp['nano-banana'].environment = { GEMINI_API_KEY: '$GEMINI_API_KEY' };
-}
-fs.writeFileSync(f, JSON.stringify(d, null, 2));
-" 2>/dev/null
-fi
+# opencode.json の後処理: 共通 instructions の絶対パス注入 + nano-banana 環境変数
+node /app/container/opencode-postprocess.mjs \
+  "$WORKSPACE_DIR/opencode.json" \
+  "--common=/app/container/instructions/common.md" \
+  "--nano-banana-key=${GEMINI_API_KEY:-}"
 
 # Vite のキャッシュクリア（NODE_ENV 変更時に必要）
 rm -rf "$WORKSPACE_DIR/node_modules/.vite"

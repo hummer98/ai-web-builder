@@ -1,13 +1,29 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { postprocessOpencodeJson } from "../../opencode-postprocess.mjs";
 import { getOctokit, getInstallationToken, isGitHubAppConfigured } from "./github-app.js";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("agent-server");
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
-const SCAFFOLD_DIR = join(import.meta.dirname, "../../scaffold");
+const CONTAINER_DIR = resolve(import.meta.dirname, "../..");
+const SCAFFOLD_DIR = join(CONTAINER_DIR, "scaffold");
+const COMMON_MD_ABS_PATH = join(CONTAINER_DIR, "instructions", "common.md");
+
+/**
+ * scaffold をコピーしたワークスペース内の opencode.json に対して、
+ * - 共通 instructions (common.md) の絶対パス注入
+ * - nano-banana MCP への GEMINI_API_KEY 注入
+ * を行う。start.sh (本番) と対称になるローカル開発側の経路。
+ */
+export function postprocessWorkspaceOpencodeJson(workspacePath: string): void {
+  postprocessOpencodeJson(join(workspacePath, "opencode.json"), {
+    commonMdAbsPath: COMMON_MD_ABS_PATH,
+    nanoBananaApiKey: process.env.GEMINI_API_KEY,
+  });
+}
 
 function run(cmd: string, args: string[], cwd: string): string {
   return execFileSync(cmd, args, {
@@ -67,6 +83,9 @@ export async function createNewSite(
       mkdirSync(workspacePath, { recursive: true });
       cpSync(SCAFFOLD_DIR, workspacePath, { recursive: true });
       log.info("Scaffold copied to workspace");
+
+      // opencode.json の後処理（共通 instructions 絶対パス注入）
+      postprocessWorkspaceOpencodeJson(workspacePath);
 
       // npm install
       run("npm", ["install"], workspacePath);
@@ -170,12 +189,17 @@ export async function resetWorkspace(): Promise<{ success: boolean; error?: stri
     if (existsSync(indexHtml)) rmSync(indexHtml);
 
     // scaffold からコピー
-    for (const item of ["src", "functions", "public", "index.html", "package.json"]) {
+    for (const item of ["src", "functions", "public", "index.html", "package.json", "opencode.json", "AGENTS.md"]) {
       const src = join(scaffoldDir, item);
       const dest = join(workspaceDir, item);
       if (existsSync(src)) {
         cpSync(src, dest, { recursive: true });
       }
+    }
+
+    // opencode.json を再配置したので postprocess で共通 instructions を注入し直す
+    if (existsSync(join(workspaceDir, "opencode.json"))) {
+      postprocessWorkspaceOpencodeJson(workspaceDir);
     }
 
     // git commit（.git がある場合のみ）

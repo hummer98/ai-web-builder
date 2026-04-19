@@ -1,5 +1,6 @@
 {
   "model": "openrouter/anthropic/claude-sonnet-4.6",
+  "instructions": [],
   "provider": {
     "openrouter": {
       "options": {
