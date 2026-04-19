@@ -69,6 +69,27 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
     );
   }, [inspectMode]);
 
+  // iframe 内ブラウザ履歴操作（本番は同一オリジンで動作、ローカル開発はクロスオリジンで SecurityError）
+  const goBack = () => {
+    try {
+      iframeRef.current?.contentWindow?.history.back();
+    } catch {
+      // ローカル開発のクロスオリジン SecurityError を握る
+    }
+  };
+  const goForward = () => {
+    try {
+      iframeRef.current?.contentWindow?.history.forward();
+    } catch {
+      // 同上
+    }
+  };
+  const goHome = () => {
+    if (iframeRef.current) {
+      iframeRef.current.src = PREVIEW_URL;
+    }
+  };
+
   // 親からの inspect トグル要求
   useEffect(() => {
     if (inspectRequested && inspectRequested > 0) {
@@ -89,6 +110,28 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
     <div className="flex flex-col h-full bg-gray-800">
       {/* ツールバー */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-900">
+        <button
+          onClick={goBack}
+          aria-label="戻る"
+          className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+        >
+          ←
+        </button>
+        <button
+          onClick={goForward}
+          aria-label="進む"
+          className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+        >
+          →
+        </button>
+        <button
+          onClick={goHome}
+          aria-label="ホーム"
+          className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+        >
+          🏠
+        </button>
+        <div className="w-px h-4 bg-gray-600" />
         <button
           onClick={toggleInspect}
           className={`text-xs px-3 py-1 rounded font-medium ${
