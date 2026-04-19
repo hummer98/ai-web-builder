@@ -1,0 +1,50 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            container/agent-server/package-lock.json
+            container/log-reader-mcp/package-lock.json
+
+      - name: Install root deps
+        run: npm ci
+
+      - name: Install container/agent-server deps
+        run: npm ci --prefix container/agent-server
+
+      - name: Install container/log-reader-mcp deps
+        run: npm ci --prefix container/log-reader-mcp
+
+      - name: Run tests
+        run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only --config fly.toml --app ai-web-builder
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
