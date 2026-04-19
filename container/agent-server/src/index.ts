@@ -10,7 +10,8 @@ import { detectCommand, HELP_TEXT } from "./utils.js";
 import { setupHmrProxy } from "./hmr-proxy.js";
 import type { Command } from "./utils.js";
 import { createApp } from "./app.js";
-import { handleChatMessage } from "./chat-handler.js";
+import { handleChatMessage, runInactivityTimeout } from "./chat-handler.js";
+import { createInactivityTimer, type InactivityTimer } from "./timeout.js";
 
 const log = createLogger("agent-server");
 const app = createApp();
@@ -19,6 +20,7 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
 const SITE_NAME = process.env.SITE_DOMAIN ?? "guest-site";
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
+const INACTIVITY_TIMEOUT_MS = 180_000;
 
 // WebSocket endpoint
 app.get(
@@ -27,10 +29,23 @@ app.get(
     let opencode: ReturnType<typeof createOpencodeClient>;
     let sessionId: string | undefined;
     let eventIterator: AsyncGenerator | undefined;
+    let inactivityTimer: InactivityTimer | undefined;
 
     return {
       async onOpen(_, ws) {
         log.info("WS connected");
+
+        // 180 秒 SSE 無イベントで timeout → error 通知 + abort + sessionId リセット (M1/M2)
+        inactivityTimer = createInactivityTimer(INACTIVITY_TIMEOUT_MS, () => {
+          runInactivityTimeout({
+            opencode,
+            ws,
+            getSessionId: () => sessionId,
+            setSessionId: (id) => {
+              sessionId = id;
+            },
+          });
+        });
 
         try {
           opencode = createOpencodeClient({ baseUrl: OPENCODE_URL });
@@ -56,8 +71,10 @@ app.get(
                 if (result.done) break;
                 const ev = result.value as Event;
                 if (ev.type === "server.heartbeat") continue;
+                // SSE イベントが来たので inactivity timer をリセット
+                inactivityTimer?.reset();
                 if (sessionId) {
-                  handleEvent(ev, sessionId, ws);
+                  handleEvent(ev, sessionId, ws, inactivityTimer);
                 }
               }
               log.info("Event stream ended");
@@ -101,6 +118,7 @@ app.get(
             setSessionId: (id) => {
               sessionId = id;
             },
+            timer: inactivityTimer,
           });
         }
 
@@ -273,6 +291,9 @@ app.get(
 
       onClose() {
         log.info("WS disconnected", { sessionId });
+        // inactivity timer のリーク防止
+        inactivityTimer?.stop();
+        inactivityTimer = undefined;
         // イベントストリームを終了
         if (eventIterator) {
           eventIterator.return(undefined).catch(() => {});
@@ -297,7 +318,8 @@ app.get(
 function handleEvent(
   event: Event,
   sessionId: string,
-  ws: { send: (data: string) => void }
+  ws: { send: (data: string) => void },
+  timer?: InactivityTimer
 ) {
   switch (event.type) {
     case "message.part.delta": {
@@ -328,6 +350,8 @@ function handleEvent(
     case "session.status": {
       if (event.properties.sessionID !== sessionId) return;
       if (event.properties.status?.type === "idle") {
+        // 応答完了 → タイマー停止（誤爆防止）
+        timer?.stop();
         ws.send(JSON.stringify({ type: "stream-end" }));
         log.info("OpenCode response completed (stream)", { sessionId });
 
@@ -349,6 +373,8 @@ function handleEvent(
 
     case "session.error": {
       if (event.properties.sessionID !== sessionId) return;
+      // エラー到達 → タイマー停止（誤爆防止）
+      timer?.stop();
       const error = event.properties.error;
       const errorMsg = error && "data" in error ? (error as { data: { message: string } }).data.message : "Unknown error";
       ws.send(JSON.stringify({ type: "error", message: `AI error: ${errorMsg}` }));

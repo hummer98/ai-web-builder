@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { handleChatMessage, type ChatHandlerCtx } from "./chat-handler.js";
+import {
+  handleChatMessage,
+  runInactivityTimeout,
+  type ChatHandlerCtx,
+} from "./chat-handler.js";
 
 type SentMessage = { type: string; [k: string]: unknown };
 
@@ -124,5 +128,75 @@ describe("handleChatMessage", () => {
     const err = ws.sent.find((m) => m.type === "error");
     expect(err).toBeDefined();
     expect(String(err?.message)).not.toContain("base64,");
+  });
+
+  it("timer が注入されていれば promptAsync 直前に reset が呼ばれる", async () => {
+    const timer = { reset: vi.fn(), stop: vi.fn() };
+    await handleChatMessage(
+      { type: "chat", message: "テスト" },
+      { ...mkCtx(), timer }
+    );
+    expect(timer.reset).toHaveBeenCalledOnce();
+    // reset は promptAsync の前に呼ばれる
+    const resetOrder = timer.reset.mock.invocationCallOrder[0];
+    const promptOrder = opencode.session.promptAsync.mock.invocationCallOrder[0];
+    expect(resetOrder).toBeLessThan(promptOrder);
+  });
+
+  it("promptAsync throw 時に timer.stop が呼ばれる", async () => {
+    opencode.session.promptAsync.mockRejectedValueOnce(new Error("boom"));
+    const timer = { reset: vi.fn(), stop: vi.fn() };
+    await handleChatMessage(
+      { type: "chat", message: "失敗させる" },
+      { ...mkCtx(), timer }
+    );
+    expect(timer.stop).toHaveBeenCalled();
+  });
+});
+
+describe("runInactivityTimeout", () => {
+  it("type:error を送る / abort を呼ぶ / sessionId を undefined に戻す", () => {
+    const sent: unknown[] = [];
+    const ws = { send: (d: string) => sent.push(JSON.parse(d)) };
+    const abort = vi.fn().mockResolvedValue({});
+    const opencode = { session: { abort } } as never;
+    let sessionId: string | undefined = "ses_ACTIVE";
+
+    runInactivityTimeout({
+      opencode,
+      ws,
+      getSessionId: () => sessionId,
+      setSessionId: (id) => {
+        sessionId = id;
+      },
+    });
+
+    // WS に error が流れる(editor ChatPanel の case "error" を再利用するため)
+    expect(sent).toHaveLength(1);
+    expect((sent[0] as { type: string }).type).toBe("error");
+    expect((sent[0] as { message: string }).message).toContain("3 分間");
+
+    // abort が呼ばれる
+    expect(abort).toHaveBeenCalledOnce();
+    expect(abort.mock.calls[0][0]).toEqual({ path: { id: "ses_ACTIVE" } });
+
+    // sessionId が undefined に
+    expect(sessionId).toBeUndefined();
+  });
+
+  it("sessionId 未設定なら abort を呼ばない", () => {
+    const ws = { send: vi.fn() };
+    const abort = vi.fn();
+    const opencode = { session: { abort } } as never;
+
+    runInactivityTimeout({
+      opencode,
+      ws,
+      getSessionId: () => undefined,
+      setSessionId: () => {},
+    });
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(ws.send).toHaveBeenCalledOnce(); // error 通知は出す
   });
 });

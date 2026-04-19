@@ -4,10 +4,38 @@ import { buildPrompt } from "./utils.js";
 import { buildImagePart } from "./image-part.js";
 import { createLogger } from "./logger.js";
 
-/** Step 3 で timeout.ts の InactivityTimer を差し込めるよう構造型で受け取る */
+/** timeout.ts の InactivityTimer と構造互換で受け取る */
 export type TimerLike = { reset: () => void; stop: () => void };
 
 const log = createLogger("chat-handler");
+
+/** 180 秒 SSE 無イベント時に発火させる処理 (M1/M2 対応):
+ * 1. ws に type:"error" を送る (editor 側 ChatPanel の error 分岐で即表示される)
+ * 2. opencode.session.abort を await せず発火
+ * 3. sessionId を undefined にリセットし、次回 chat で session.create から再開
+ */
+export function runInactivityTimeout(ctx: {
+  opencode: ReturnType<typeof createOpencodeClient>;
+  ws: { send: (data: string) => void };
+  getSessionId: () => string | undefined;
+  setSessionId: (id: string | undefined) => void;
+}): void {
+  const sessionId = ctx.getSessionId();
+  ctx.ws.send(
+    JSON.stringify({
+      type: "error",
+      message: "AI の応答が 3 分間ありませんでした。もう一度送ってください。",
+    })
+  );
+  if (sessionId) {
+    ctx.opencode.session.abort({ path: { id: sessionId } }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error("session.abort failed", { message });
+    });
+  }
+  ctx.setSessionId(undefined);
+  log.info("inactivity timeout fired", { sessionId });
+}
 
 export type ChatMessageData = {
   type: "chat";
