@@ -11,3 +11,4 @@ dist/
 logs/
 workspace/
 e2e/results/
+.worktrees/

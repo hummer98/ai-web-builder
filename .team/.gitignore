@@ -1,0 +1,18 @@
+output/
+prompts/
+docs-snapshot/
+
+rate-limit.json
+masters/
+
+# cmux-team runtime state
+conductors/
+traces/
+daemon.pid
+proxy-port
+task-state.json
+team.json
+
+# Per-task ephemeral run directories (agent scratch space).
+# Final deliverables are promoted to .team/artifacts/ instead.
+tasks/*/runs/
