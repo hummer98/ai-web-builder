@@ -11,7 +11,10 @@ const log = createLogger("agent-server");
 const OPENCODE_URL = process.env.OPENCODE_URL ?? "http://localhost:4096";
 const SITE_DOMAIN = process.env.SITE_DOMAIN ?? "guest-site";
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
-const INACTIVITY_TIMEOUT_MS = 180_000;
+const INACTIVITY_TIMEOUT_MS =
+  Number(process.env.INACTIVITY_TIMEOUT_MS) > 0
+    ? Number(process.env.INACTIVITY_TIMEOUT_MS)
+    : 180_000;
 
 const app = createApp();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
