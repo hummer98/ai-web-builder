@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -108,6 +108,127 @@ describe("app HTTP routes", () => {
       expect(res.status).toBe(400);
       const json = (await res.json()) as { error: string };
       expect(json.error).toBe("Only image files are allowed");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /uploads/*
+  // -------------------------------------------------------------------------
+  describe("GET /uploads/*", () => {
+    const placeFile = (name: string, bytes: Uint8Array) => {
+      const dir = join(tmpDir, "public", "uploads");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, name), bytes);
+    };
+
+    it("returns 200 with correct Content-Type for .png", async () => {
+      const app = await getApp();
+      placeFile("a.png", new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      const res = await app.request("/uploads/a.png");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/png");
+      const buf = new Uint8Array(await res.arrayBuffer());
+      expect(buf[0]).toBe(0x89);
+    });
+
+    it("returns 200 with image/jpeg for .jpg and .jpeg", async () => {
+      const app = await getApp();
+      placeFile("a.jpg", new Uint8Array([0xff, 0xd8]));
+      placeFile("b.jpeg", new Uint8Array([0xff, 0xd8]));
+      const r1 = await app.request("/uploads/a.jpg");
+      const r2 = await app.request("/uploads/b.jpeg");
+      expect(r1.headers.get("content-type")).toBe("image/jpeg");
+      expect(r2.headers.get("content-type")).toBe("image/jpeg");
+    });
+
+    it("returns 200 with image/webp / image/gif / image/svg+xml", async () => {
+      const app = await getApp();
+      placeFile("a.webp", new Uint8Array([0x52, 0x49, 0x46, 0x46]));
+      placeFile("a.gif", new Uint8Array([0x47, 0x49, 0x46]));
+      placeFile("a.svg", new TextEncoder().encode("<svg/>"));
+      expect((await app.request("/uploads/a.webp")).headers.get("content-type")).toBe("image/webp");
+      expect((await app.request("/uploads/a.gif")).headers.get("content-type")).toBe("image/gif");
+      expect((await app.request("/uploads/a.svg")).headers.get("content-type")).toBe("image/svg+xml");
+    });
+
+    it("treats uppercase extension as same MIME (.PNG → image/png)", async () => {
+      const app = await getApp();
+      placeFile("BIG.PNG", new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      const res = await app.request("/uploads/BIG.PNG");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/png");
+    });
+
+    it("returns 404 for missing file", async () => {
+      const app = await getApp();
+      const res = await app.request("/uploads/does-not-exist.png");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 for path traversal attempt (../etc/passwd)", async () => {
+      const app = await getApp();
+      const res = await app.request("/uploads/..%2Fetc%2Fpasswd");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 for path containing '..' segment (decoded)", async () => {
+      const app = await getApp();
+      const res = await app.request("/uploads/..");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 for nested path (subdirectory not allowed)", async () => {
+      const app = await getApp();
+      placeFile("a.png", new Uint8Array([0x89]));
+      const res = await app.request("/uploads/sub/a.png");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 for dotfile (.env)", async () => {
+      const app = await getApp();
+      placeFile(".env", new TextEncoder().encode("SECRET=1"));
+      const res = await app.request("/uploads/.env");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 for non-allowed extension (.txt) even if file exists", async () => {
+      const app = await getApp();
+      placeFile("a.txt", new TextEncoder().encode("hello"));
+      const res = await app.request("/uploads/a.txt");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 when WORKSPACE_DIR/public/uploads does not exist yet", async () => {
+      const app = await getApp();
+      const res = await app.request("/uploads/anything.png");
+      expect(res.status).toBe(404);
+    });
+
+    it("end-to-end: POST /api/upload then GET /uploads/<returned>", async () => {
+      const app = await getApp();
+      const formData = new FormData();
+      const file = new File(
+        [new Uint8Array([0x89, 0x50, 0x4e, 0x47])],
+        "test.png",
+        { type: "image/png" }
+      );
+      formData.append("file", file);
+      const upload = await app.request("/api/upload", { method: "POST", body: formData });
+      const { url } = (await upload.json()) as { url: string };
+      expect(url).toMatch(/^\/uploads\/.+\.png$/);
+
+      const get = await app.request(url);
+      expect(get.status).toBe(200);
+      expect(get.headers.get("content-type")).toBe("image/png");
+    });
+
+    it("does not fall through to SPA fallback for /uploads/* (production)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.resetModules();
+      const app = await getApp();
+      const res = await app.request("/uploads/missing.png");
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type") ?? "").not.toMatch(/text\/html/);
     });
   });
 

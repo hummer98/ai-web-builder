@@ -1,13 +1,23 @@
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join, extname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, extname, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "./logger.js";
 
 const log = createLogger("agent-server");
 
 const MAX_UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB
+
+const UPLOAD_MIME_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+};
 
 /**
  * HTTP ルートのみを持つ Hono app を作成する。
@@ -91,6 +101,49 @@ export function createApp() {
     }
   });
 
+  // ユーザーアップロード画像の直接配信 (/uploads/*)
+  // 親 origin で配信することで AI が生成する <img src="/uploads/<uuid>.<ext>"> が
+  // iframe からも本番 Cloudflare Pages からも動作する
+  app.get("/uploads/*", async (c) => {
+    const reqPath = c.req.path;
+    const rest = reqPath.slice("/uploads/".length);
+
+    if (
+      !rest ||
+      rest.includes("/") ||
+      rest.includes("\\") ||
+      rest.includes("..") ||
+      rest.startsWith(".")
+    ) {
+      return c.text("Not Found", 404);
+    }
+
+    const ext = extname(rest).toLowerCase();
+    const contentType = UPLOAD_MIME_TYPES[ext];
+    if (!contentType) {
+      return c.text("Not Found", 404);
+    }
+
+    const uploadsDir = resolve(WORKSPACE_DIR, "public", "uploads");
+    const filePath = resolve(uploadsDir, rest);
+    if (filePath !== uploadsDir + sep + rest) {
+      return c.text("Not Found", 404);
+    }
+
+    try {
+      const buffer = await readFile(filePath);
+      return new Response(new Uint8Array(buffer), {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "public, max-age=3600",
+        },
+      });
+    } catch {
+      return c.text("Not Found", 404);
+    }
+  });
+
   // ゲストサイトプレビューへのプロキシ (/preview/*)
   // Vite の base='/preview/' に合わせてパスをそのまま転送する
   app.all("/preview/*", async (c) => {
@@ -115,7 +168,13 @@ export function createApp() {
   if (process.env.NODE_ENV === "production") {
     app.use("/*", async (c, next) => {
       const path = c.req.path;
-      if (path === "/ws" || path.startsWith("/api") || path.startsWith("/preview") || path === "/health") {
+      if (
+        path === "/ws" ||
+        path.startsWith("/api") ||
+        path.startsWith("/preview") ||
+        path.startsWith("/uploads") ||
+        path === "/health"
+      ) {
         return next();
       }
       const mw = serveStatic({ root: "../../editor/dist" });
@@ -124,7 +183,13 @@ export function createApp() {
     // SPA フォールバック（同じ除外条件）
     app.get("/*", async (c, next) => {
       const path = c.req.path;
-      if (path === "/ws" || path.startsWith("/api") || path.startsWith("/preview") || path === "/health") {
+      if (
+        path === "/ws" ||
+        path.startsWith("/api") ||
+        path.startsWith("/preview") ||
+        path.startsWith("/uploads") ||
+        path === "/health"
+      ) {
         return next();
       }
       const mw = serveStatic({ root: "../../editor/dist", path: "index.html" });
