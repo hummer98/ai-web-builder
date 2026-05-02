@@ -2,8 +2,56 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import {
+  generateKeyPair,
+  exportJWK,
+  importJWK,
+  SignJWT,
+  type JWK,
+} from "jose";
+import type { Verifier } from "./auth.js";
 
 let tmpDir: string;
+
+const TEAM_DOMAIN = "test.cloudflareaccess.com";
+const AUD = "test-aud-prod";
+
+type KeyMaterial = { privateKey: CryptoKey; publicJwk: JWK };
+
+async function makeKey(kid: string): Promise<KeyMaterial> {
+  const { privateKey, publicKey } = await generateKeyPair("RS256", {
+    extractable: true,
+  });
+  const jwk = await exportJWK(publicKey);
+  jwk.kid = kid;
+  jwk.alg = "RS256";
+  jwk.use = "sig";
+  return { privateKey, publicJwk: jwk };
+}
+
+async function signToken(
+  privateKey: CryptoKey,
+  kid: string,
+  opts: { aud?: string; iss?: string; expSec?: number } = {}
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "RS256", kid })
+    .setIssuer(opts.iss ?? `https://${TEAM_DOMAIN}`)
+    .setAudience(opts.aud ?? AUD)
+    .setSubject("user@example.com")
+    .setIssuedAt(now)
+    .setExpirationTime(opts.expSec ?? now + 600)
+    .sign(privateKey);
+}
+
+async function makeJwksFn(keys: KeyMaterial[]) {
+  return async (header: { kid?: string }): Promise<CryptoKey> => {
+    const k = keys.find((k) => k.publicJwk.kid === header.kid);
+    if (!k) throw new Error(`unknown kid: ${header.kid}`);
+    return (await importJWK(k.publicJwk, "RS256")) as CryptoKey;
+  };
+}
 
 describe("app HTTP routes", () => {
   beforeEach(() => {
@@ -21,6 +69,11 @@ describe("app HTTP routes", () => {
   async function getApp() {
     const { createApp } = await import("./app.js");
     return createApp();
+  }
+
+  async function getAppWithVerifier(verifier: Verifier) {
+    const { createApp } = await import("./app.js");
+    return createApp({ verifier });
   }
 
   // -------------------------------------------------------------------------
@@ -236,16 +289,6 @@ describe("app HTTP routes", () => {
   // 認証ミドルウェア (NODE_ENV=production)
   // -------------------------------------------------------------------------
   describe("auth middleware (production)", () => {
-    it("returns 401 without Cf-Access-Jwt-Assertion header when CLOUDFLARE_ACCESS_AUD is set", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", "dummy-aud");
-      vi.resetModules();
-      const app = await getApp();
-
-      const res = await app.request("/api/upload", { method: "POST" });
-      expect(res.status).toBe(401);
-    });
-
     it("/health bypasses auth even in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.resetModules();
@@ -256,20 +299,286 @@ describe("app HTTP routes", () => {
       expect(await res.json()).toEqual({ status: "ok" });
     });
 
-    it("allows requests with Cf-Access-Jwt-Assertion header", async () => {
+    it("returns 401 without JWT when CLOUDFLARE_ACCESS_AUD is set", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+      const verifier: Verifier = async () => ({ ok: false, error: "n/a" });
+      const app = await getAppWithVerifier(verifier);
+
+      const res = await app.request("/api/upload", { method: "POST" });
+      expect(res.status).toBe(401);
+    });
+
+    it("allows requests with valid JWT (Cf-Access-Jwt-Assertion header)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+
+      const key = await makeKey("k1");
+      const jwks = await makeJwksFn([key]);
+      const { createVerifier } = await import("./auth.js");
+      const verifier = createVerifier({
+        teamDomain: TEAM_DOMAIN,
+        aud: AUD,
+        jwks,
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const token = await signToken(key.privateKey, "k1");
+      const formData = new FormData();
+      const res = await app.request("/api/upload", {
+        method: "POST",
+        body: formData,
+        headers: { "Cf-Access-Jwt-Assertion": token },
+      });
+      // 認証は通過 → 400 (file なし)
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 401 for invalid JWT (random string)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+
+      const key = await makeKey("k1");
+      const jwks = await makeJwksFn([key]);
+      const { createVerifier } = await import("./auth.js");
+      const verifier = createVerifier({
+        teamDomain: TEAM_DOMAIN,
+        aud: AUD,
+        jwks,
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const formData = new FormData();
+      const res = await app.request("/api/upload", {
+        method: "POST",
+        body: formData,
+        headers: { "Cf-Access-Jwt-Assertion": "not-a-jwt" },
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 401 for AUD-mismatched JWT", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+
+      const key = await makeKey("k1");
+      const jwks = await makeJwksFn([key]);
+      const { createVerifier } = await import("./auth.js");
+      const verifier = createVerifier({
+        teamDomain: TEAM_DOMAIN,
+        aud: AUD,
+        jwks,
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const token = await signToken(key.privateKey, "k1", {
+        aud: "wrong-aud",
+      });
+      const formData = new FormData();
+      const res = await app.request("/api/upload", {
+        method: "POST",
+        body: formData,
+        headers: { "Cf-Access-Jwt-Assertion": token },
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it("allows requests with valid JWT in CF_Authorization Cookie", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+
+      const key = await makeKey("k1");
+      const jwks = await makeJwksFn([key]);
+      const { createVerifier } = await import("./auth.js");
+      const verifier = createVerifier({
+        teamDomain: TEAM_DOMAIN,
+        aud: AUD,
+        jwks,
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const token = await signToken(key.privateKey, "k1");
+      const formData = new FormData();
+      const res = await app.request("/api/upload", {
+        method: "POST",
+        body: formData,
+        headers: { Cookie: `CF_Authorization=${token}` },
+      });
+      expect(res.status).toBe(400); // 認証通過 → file なしで 400
+    });
+
+    it("/preview/* also requires JWT in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+      const verifier: Verifier = async () => ({ ok: false, error: "n/a" });
+      const app = await getAppWithVerifier(verifier);
+
+      const res = await app.request("/preview/index.html");
+      expect(res.status).toBe(401);
+    });
+
+    it("/uploads/* also requires JWT in production", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+      const verifier: Verifier = async () => ({ ok: false, error: "n/a" });
+      const app = await getAppWithVerifier(verifier);
+
+      const res = await app.request("/uploads/anything.png");
+      expect(res.status).toBe(401);
+    });
+
+    it("DEMO_PASSWORD basic auth still works", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("DEMO_PASSWORD", "p4ss");
+      vi.resetModules();
+      const app = await getApp();
+
+      const formData = new FormData();
+      const cred = "Basic " + btoa("anyuser:p4ss");
+      const res = await app.request("/api/upload", {
+        method: "POST",
+        body: formData,
+        headers: { Authorization: cred },
+      });
+      // 認証通過 → file なしで 400
+      expect(res.status).toBe(400);
+    });
+
+    it("CLOUDFLARE_ACCESS_AUD unset → demo mode (no JWT required)", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.resetModules();
       const app = await getApp();
 
       const formData = new FormData();
-      // file なしなので 400 が返るが、401 ではないことを確認
       const res = await app.request("/api/upload", {
         method: "POST",
         body: formData,
-        headers: { "Cf-Access-Jwt-Assertion": "dummy-jwt-token" },
       });
-      // 認証は通過 → 400 (ファイルなし)
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(400); // 認証通過 → file なしで 400
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // /ws の Origin チェック (Step 3)
+  // -------------------------------------------------------------------------
+  describe("/ws origin & auth (production)", () => {
+    it("returns 401 for /ws without JWT when AUD set", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.resetModules();
+      const verifier: Verifier = async () => ({ ok: false, error: "n/a" });
+      const app = await getAppWithVerifier(verifier);
+
+      // Hono は /ws のハンドラを登録していないが、ミドルウェアで 401 になる
+      const res = await app.request("/ws", {
+        headers: { Upgrade: "websocket" },
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 403 for /ws when Origin is not in ALLOWED_ORIGINS", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.stubEnv("ALLOWED_ORIGINS", "https://allowed.example");
+      vi.resetModules();
+      const verifier: Verifier = async () => ({
+        ok: true,
+        payload: { sub: "u" },
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const res = await app.request("/ws", {
+        headers: {
+          Upgrade: "websocket",
+          Origin: "https://evil.example",
+          "Cf-Access-Jwt-Assertion": "any",
+        },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("M1: returns 403 for /ws when Origin is missing AND ALLOWED_ORIGINS is set", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.stubEnv("ALLOWED_ORIGINS", "https://allowed.example");
+      vi.resetModules();
+      const verifier: Verifier = async () => ({
+        ok: true,
+        payload: { sub: "u" },
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const res = await app.request("/ws", {
+        headers: {
+          Upgrade: "websocket",
+          // Origin ヘッダーなし
+          "Cf-Access-Jwt-Assertion": "any",
+        },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("/ws passes middleware when Origin allowed and JWT valid (no upgrade handler in test app → 404)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      vi.stubEnv("ALLOWED_ORIGINS", "https://allowed.example");
+      vi.resetModules();
+      const verifier: Verifier = async () => ({
+        ok: true,
+        payload: { sub: "u" },
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const res = await app.request("/ws", {
+        headers: {
+          Upgrade: "websocket",
+          Origin: "https://allowed.example",
+          "Cf-Access-Jwt-Assertion": "any",
+        },
+      });
+      // /ws ハンドラは createApp 内で登録されないので 404 (= ミドルウェア通過の証明)
+      expect(res.status).toBe(404);
+    });
+
+    it("/ws is unrestricted when ALLOWED_ORIGINS is unset (curl friendly)", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("CLOUDFLARE_ACCESS_AUD", AUD);
+      vi.stubEnv("CLOUDFLARE_ACCESS_TEAM_DOMAIN", TEAM_DOMAIN);
+      // ALLOWED_ORIGINS は未設定
+      vi.resetModules();
+      const verifier: Verifier = async () => ({
+        ok: true,
+        payload: { sub: "u" },
+      });
+      const app = await getAppWithVerifier(verifier);
+
+      const res = await app.request("/ws", {
+        headers: {
+          Upgrade: "websocket",
+          // Origin なしでもオリジン検査は通る
+          "Cf-Access-Jwt-Assertion": "any",
+        },
+      });
+      // ハンドラ未登録 → 404
+      expect(res.status).toBe(404);
     });
   });
 });

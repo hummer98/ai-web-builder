@@ -1,5 +1,8 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import safeRegex from "safe-regex2";
+
+const MAX_PATTERN_LENGTH = 200;
 
 export function getLogDir(): string {
   return process.env.LOG_DIR ?? join(import.meta.dirname, "../../../logs");
@@ -74,7 +77,31 @@ export async function searchLog(params: { pattern: string; tail: number }) {
     };
   }
 
-  const regex = new RegExp(pattern, "i");
+  // ReDoS 対策: 長さ制限 + safe-regex2 で危険パターンを拒否
+  if (pattern.length > MAX_PATTERN_LENGTH || !safeRegex(pattern)) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Pattern rejected (length>${MAX_PATTERN_LENGTH} or unsafe regex)`,
+        },
+      ],
+    };
+  }
+
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern, "i");
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Invalid regex: ${String(err)}`,
+        },
+      ],
+    };
+  }
   const results: string[] = [];
 
   const files = readdirSync(logDir).filter((f) => f.endsWith(".log"));

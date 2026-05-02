@@ -100,6 +100,34 @@ describe("log-reader-mcp handlers", () => {
       const result = await searchLog({ pattern: "test", tail: 30 });
       expect(text(result)).toBe("Log directory not found");
     });
+
+    it("rejects patterns longer than 200 chars", async () => {
+      const result = await searchLog({
+        pattern: "a".repeat(201),
+        tail: 30,
+      });
+      expect(text(result)).toContain("Pattern rejected");
+    });
+
+    it("rejects ReDoS patterns (catastrophic backtracking)", async () => {
+      const result = await searchLog({
+        pattern: "(a+)+$",
+        tail: 30,
+      });
+      expect(text(result)).toContain("Pattern rejected");
+    });
+
+    it("rejects malformed regex", async () => {
+      const result = await searchLog({
+        pattern: "[invalid",
+        tail: 30,
+      });
+      // safe-regex2 が先に弾くか、new RegExp で構文エラーになる
+      const t = text(result);
+      expect(t.includes("Pattern rejected") || t.includes("Invalid regex")).toBe(
+        true
+      );
+    });
   });
 
   // ── listLogs ─────────────────────────────────────────────

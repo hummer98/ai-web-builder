@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { getCookie } from "hono/cookie";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "./logger.js";
+import { createVerifier, type Verifier } from "./auth.js";
 
 const log = createLogger("agent-server");
 
@@ -19,20 +21,83 @@ const UPLOAD_MIME_TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
 };
 
+export type CreateAppOpts = {
+  /**
+   * テスト用 verifier 注入。本番では未指定で
+   * `createVerifier({ teamDomain, aud })` を内部生成する。
+   */
+  verifier?: Verifier;
+};
+
+/**
+ * 起動時バリデーション。production 起動時に必要な認証手段が揃っているかを検査する。
+ *
+ * - DEMO_PASSWORD あり → Basic フォールバックで起動可
+ * - DEMO_PASSWORD なし & CLOUDFLARE_ACCESS_AUD あり → JWT 検証必須 → TEAM_DOMAIN も必須
+ * - 上記いずれもなし → デモモード警告のみ (ローカルから直公開時の互換)
+ */
+function ensureProductionAuthConfig(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const demo = process.env.DEMO_PASSWORD;
+  const aud = process.env.CLOUDFLARE_ACCESS_AUD;
+  const team = process.env.CLOUDFLARE_ACCESS_TEAM_DOMAIN;
+
+  if (demo) return;
+  if (!aud) {
+    log.warn(
+      "production starting in demo mode (no DEMO_PASSWORD, no CLOUDFLARE_ACCESS_AUD)"
+    );
+    return;
+  }
+  if (!team) {
+    throw new Error(
+      "CLOUDFLARE_ACCESS_TEAM_DOMAIN is required when CLOUDFLARE_ACCESS_AUD is set in production"
+    );
+  }
+}
+
 /**
  * HTTP ルートのみを持つ Hono app を作成する。
  * WebSocket・serve() は index.ts 側で追加する。
  */
-export function createApp() {
+export function createApp(opts: CreateAppOpts = {}) {
+  ensureProductionAuthConfig();
+
   const app = new Hono();
 
   const VITE_URL = process.env.VITE_URL ?? "http://localhost:5173";
   const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? "./workspace";
 
-  // 認証ミドルウェア（/health, /ws は常に除外）
+  // verifier の遅延生成 (DI が無いとき & JWT 必須運用のときのみ)
+  let cachedVerifier: Verifier | undefined = opts.verifier;
+  const getVerifier = (): Verifier | undefined => {
+    if (cachedVerifier) return cachedVerifier;
+    const aud = process.env.CLOUDFLARE_ACCESS_AUD;
+    const team = process.env.CLOUDFLARE_ACCESS_TEAM_DOMAIN;
+    if (!aud || !team) return undefined;
+    cachedVerifier = createVerifier({ teamDomain: team, aud });
+    return cachedVerifier;
+  };
+
+  // 認証ミドルウェア（/health は常に除外。/ws は WS upgrade 時 Origin チェック追加）
   app.use("*", async (c, next) => {
     if (process.env.NODE_ENV !== "production") return next();
-    if (c.req.path === "/health" || c.req.path === "/ws") return next();
+    if (c.req.path === "/health") return next();
+
+    // /ws upgrade に Origin ホワイトリストを適用 (M1: 設定済みなら欠落も拒否)
+    if (c.req.path === "/ws") {
+      const allowed = (process.env.ALLOWED_ORIGINS ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (allowed.length > 0) {
+        const origin = c.req.header("Origin");
+        if (!origin || !allowed.includes(origin)) {
+          log.warn("Origin rejected", { origin: origin ?? "(missing)" });
+          return c.text("Forbidden", 403);
+        }
+      }
+    }
 
     // DEMO_PASSWORD が設定されている場合: Basic 認証
     const demoPassword = process.env.DEMO_PASSWORD;
@@ -49,18 +114,42 @@ export function createApp() {
       });
     }
 
-    // Cloudflare Access JWT 認証（設定されている環境のみ）
-    const jwt = c.req.header("Cf-Access-Jwt-Assertion");
-    if (jwt) return next();
+    // Cloudflare Access JWT 検証
+    const aud = process.env.CLOUDFLARE_ACCESS_AUD;
+    if (!aud) {
+      // 認証手段がどちらも設定されていない場合はスキップ（デモモード）
+      return next();
+    }
 
-    // 認証手段がどちらも設定されていない場合はスキップ（デモモード）
-    if (!process.env.CLOUDFLARE_ACCESS_AUD) return next();
+    const verifier = getVerifier();
+    if (!verifier) {
+      log.error("Verifier missing despite CLOUDFLARE_ACCESS_AUD set");
+      return c.text("Unauthorized", 401);
+    }
 
-    log.warn("Access denied: no valid auth", {
-      path: c.req.path,
-      ip: c.req.header("x-forwarded-for") ?? "unknown",
-    });
-    return c.text("Unauthorized", 401);
+    const token =
+      c.req.header("Cf-Access-Jwt-Assertion") ??
+      getCookie(c, "CF_Authorization");
+    if (!token) {
+      log.warn("Access denied: JWT missing", {
+        path: c.req.path,
+        ip: c.req.header("x-forwarded-for") ?? "unknown",
+      });
+      return c.text("Unauthorized", 401);
+    }
+
+    const r = await verifier(token);
+    if (!r.ok) {
+      // セキュリティ要件: トークン本体・payload はログに出さない (m6)
+      log.warn("Access denied: JWT verify failed", {
+        path: c.req.path,
+        ip: c.req.header("x-forwarded-for") ?? "unknown",
+        error: r.error,
+      });
+      return c.text("Unauthorized", 401);
+    }
+
+    return next();
   });
 
   // Health check

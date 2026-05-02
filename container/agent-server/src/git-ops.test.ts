@@ -147,9 +147,66 @@ describe("git-ops", () => {
       const history = gitOps.getHistory();
       expect(history).toEqual([]);
     });
+
+    it("clamps count > 100 to 100 (defensive)", () => {
+      writeFileSync(join(tmpDir, "a.txt"), "a");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "first");
+      const history = gitOps.getHistory(99999);
+      // 1 件しか存在しないのでクランプの効果は長さ越えではなく "正常終了" を確認
+      expect(history.length).toBeGreaterThanOrEqual(1);
+      expect(history.length).toBeLessThanOrEqual(100);
+    });
+
+    it("clamps negative count to 1", () => {
+      writeFileSync(join(tmpDir, "a.txt"), "a");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "first");
+      writeFileSync(join(tmpDir, "b.txt"), "b");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "second");
+      const history = gitOps.getHistory(-5);
+      expect(history).toHaveLength(1);
+    });
+
+    it("falls back to default 20 for NaN", () => {
+      writeFileSync(join(tmpDir, "a.txt"), "a");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "first");
+      const history = gitOps.getHistory(NaN as unknown as number);
+      // commits 1 件 → そのまま 1 件返り、エラーは起きない
+      expect(history).toHaveLength(1);
+    });
+
+    it("clamps count 0 to 1", () => {
+      writeFileSync(join(tmpDir, "a.txt"), "a");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "first");
+      writeFileSync(join(tmpDir, "b.txt"), "b");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "second");
+      const history = gitOps.getHistory(0);
+      expect(history).toHaveLength(1);
+    });
   });
 
   describe("revertToCommit(hash)", () => {
+    it("returns null for non-hex hash (defensive guard)", () => {
+      writeFileSync(join(tmpDir, "f.txt"), "x");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "init");
+      const r = gitOps.revertToCommit("NOT-HEX");
+      expect(r).toBeNull();
+    });
+
+    it("returns null for hash starting with '-' (option-like)", () => {
+      writeFileSync(join(tmpDir, "f.txt"), "x");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "init");
+      const r = gitOps.revertToCommit("-rf");
+      expect(r).toBeNull();
+    });
+
     it("reverts file content to the specified commit", () => {
       writeFileSync(join(tmpDir, "file.txt"), "version1");
       gitInTmp("add", "-A");

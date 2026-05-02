@@ -109,6 +109,16 @@ OpenCode MCP 構成 (opencode.json):
 - `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` — デプロイ
 - `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` — GitHub App
 
+### 本番認証 (Fly.io)
+
+`NODE_ENV=production` で起動するときの agent-server 認証ポリシー:
+
+- `DEMO_PASSWORD` 設定時 → Basic 認証フォールバックで通過
+- `CLOUDFLARE_ACCESS_AUD` + `CLOUDFLARE_ACCESS_TEAM_DOMAIN` 設定時 → Cloudflare Access JWT を `jose` で署名検証 (Cf-Access-Jwt-Assertion ヘッダー or `CF_Authorization` Cookie)
+- どちらも未設定 → デモモード警告のみで通過 (Fly 直公開時の互換用)
+- `/ws` upgrade は `ALLOWED_ORIGINS` (カンマ区切り) でホワイトリスト化。設定済みなら `Origin` 欠落も 403
+- `GITHUB_OWNER` 未設定時は `hummer98` にフォールバック (本番では明示設定推奨)
+
 ## テスト方針 (必須)
 
 AI エージェントがコードを生成・変更するプロジェクトでは、テストはフィードバックループの一部として必須。「動くはず」ではなく「テストが通った」を信頼の基準とする。

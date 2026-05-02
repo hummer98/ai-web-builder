@@ -4,6 +4,17 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import { WebSocket as NodeWs } from "ws";
 import { Hono } from "hono";
 import type { AddressInfo } from "node:net";
+
+// site-init のモックは registerWsHandler import より前に定義する必要がある
+const createNewSiteMock = vi.fn();
+const importExistingRepoMock = vi.fn();
+const resetWorkspaceMock = vi.fn();
+vi.mock("./site-init.js", () => ({
+  createNewSite: (...args: unknown[]) => createNewSiteMock(...args),
+  importExistingRepo: (...args: unknown[]) => importExistingRepoMock(...args),
+  resetWorkspace: (...args: unknown[]) => resetWorkspaceMock(...args),
+}));
+
 import { registerWsHandler } from "./ws-handler.js";
 
 type FakeOpencode = {
@@ -118,6 +129,10 @@ describe("registerWsHandler (WS integration)", () => {
       await closeServer(started.server);
       started = undefined;
     }
+    createNewSiteMock.mockReset();
+    importExistingRepoMock.mockReset();
+    resetWorkspaceMock.mockReset();
+    vi.unstubAllEnvs();
   });
 
   it("inactivityTimeoutMs 経過で timeout エラーメッセージが WS に届く", async () => {
@@ -160,6 +175,196 @@ describe("registerWsHandler (WS integration)", () => {
     expect(opencode.session.abort).toHaveBeenCalledWith({
       path: { id: "ses_TEST_010" },
     });
+  });
+
+  it("不正 JSON を受信しても接続が落ちず error が返る", async () => {
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    const messages: unknown[] = [];
+    ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send("not-json");
+    // しばらく待って次の正常メッセージで接続生存確認
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ws.readyState).toBe(NodeWs.OPEN);
+
+    ws.close();
+
+    const err = messages.find(
+      (m): m is { type: string; message: string } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "error"
+    );
+    expect(err).toBeDefined();
+    expect(err!.message).toBe("Invalid message");
+  });
+
+  it("未知の type を受信しても接続維持で error が返る", async () => {
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    const messages: unknown[] = [];
+    ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(JSON.stringify({ type: "unknown" }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ws.readyState).toBe(NodeWs.OPEN);
+
+    ws.close();
+
+    const err = messages.find(
+      (m): m is { type: string; message: string } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "error"
+    );
+    expect(err).toBeDefined();
+    expect(err!.message).toBe("Invalid message");
+  });
+
+  it("history.count 範囲外でスキーマ違反 (error 返信)", async () => {
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    const messages: unknown[] = [];
+    ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(JSON.stringify({ type: "history", count: 999 }));
+    await new Promise((r) => setTimeout(r, 100));
+    ws.close();
+
+    const err = messages.find(
+      (m): m is { type: string; message: string } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "error"
+    );
+    expect(err).toBeDefined();
+    // 履歴メッセージは返ってきていないこと
+    const hist = messages.find(
+      (m) =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "history"
+    );
+    expect(hist).toBeUndefined();
+  });
+
+  it("create-site: クライアントの owner は無視され、env GITHUB_OWNER が使われる", async () => {
+    vi.stubEnv("GITHUB_OWNER", "trusted-owner");
+    createNewSiteMock.mockResolvedValue({
+      success: true,
+      workspacePath: "/tmp/x",
+      repoUrl: "https://github.com/trusted-owner/ok-name",
+    });
+
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(
+      JSON.stringify({
+        type: "create-site",
+        owner: "attacker",
+        siteName: "ok-name",
+      })
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    ws.close();
+
+    expect(createNewSiteMock).toHaveBeenCalledTimes(1);
+    expect(createNewSiteMock).toHaveBeenCalledWith("trusted-owner", "ok-name");
+  });
+
+  it("create-site: siteName が path traversal だとスキーマで弾かれる", async () => {
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    const messages: unknown[] = [];
+    ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(
+      JSON.stringify({
+        type: "create-site",
+        siteName: "../evil",
+      })
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    ws.close();
+
+    expect(createNewSiteMock).not.toHaveBeenCalled();
+    const err = messages.find(
+      (m): m is { type: string; message: string } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "error"
+    );
+    expect(err).toBeDefined();
+  });
+
+  it("import-repo: クライアントの owner は無視される", async () => {
+    vi.stubEnv("GITHUB_OWNER", "trusted-owner");
+    importExistingRepoMock.mockResolvedValue({
+      success: true,
+      workspacePath: "/tmp/x",
+      repoUrl: "https://github.com/trusted-owner/repo",
+    });
+
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(
+      JSON.stringify({
+        type: "import-repo",
+        owner: "attacker",
+        repoName: "my-repo",
+      })
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    ws.close();
+
+    expect(importExistingRepoMock).toHaveBeenCalledTimes(1);
+    expect(importExistingRepoMock).toHaveBeenCalledWith(
+      "trusted-owner",
+      "my-repo"
+    );
+  });
+
+  it("revert.hash が非 16 進だとスキーマ違反 (error 返信)", async () => {
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    const messages: unknown[] = [];
+    ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(JSON.stringify({ type: "revert", hash: "NOT-HEX" }));
+    await new Promise((r) => setTimeout(r, 100));
+    ws.close();
+
+    const err = messages.find(
+      (m): m is { type: string; message: string } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "error"
+    );
+    expect(err).toBeDefined();
   });
 
   it("delta が継続して流れる間は timeout が発火しない", async () => {

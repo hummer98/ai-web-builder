@@ -10,6 +10,12 @@ import { detectCommand, HELP_TEXT } from "./utils.js";
 import type { Command } from "./utils.js";
 import { handleChatMessage, runInactivityTimeout } from "./chat-handler.js";
 import { createInactivityTimer, type InactivityTimer } from "./timeout.js";
+import {
+  parseWsMessage,
+  REPO_IDENT_REGEX,
+  INVALID_NAME_MESSAGE,
+  type WsInboundMessage,
+} from "./ws-schema.js";
 
 const log = createLogger("agent-server");
 
@@ -19,6 +25,10 @@ export type WsHandlerDeps = {
   workspaceDir: string;
   siteDomain: string;
 };
+
+function getOwner(): string {
+  return process.env.GITHUB_OWNER ?? "hummer98";
+}
 
 export function registerWsHandler(
   app: Hono,
@@ -158,9 +168,17 @@ export function registerWsHandler(
           }
 
           case "create": {
+            // detectCommand 経由は自然言語マッチで siteName が日本語のことがある。
+            // 英数字+ハイフン以外は GitHub 側で 422 になるため事前に弾く (ペルソナ向け文言)。
+            if (!REPO_IDENT_REGEX.test(cmd.siteName)) {
+              ws.send(
+                JSON.stringify({ type: "error", message: INVALID_NAME_MESSAGE })
+              );
+              return;
+            }
             ws.send(JSON.stringify({ type: "status", message: "creating" }));
             try {
-              const result = await createNewSite("hummer98", cmd.siteName);
+              const result = await createNewSite(getOwner(), cmd.siteName);
               if (result.success) {
                 ws.send(
                   JSON.stringify({
@@ -196,12 +214,15 @@ export function registerWsHandler(
           }
 
           case "import": {
+            if (!REPO_IDENT_REGEX.test(cmd.repoName)) {
+              ws.send(
+                JSON.stringify({ type: "error", message: INVALID_NAME_MESSAGE })
+              );
+              return;
+            }
             ws.send(JSON.stringify({ type: "status", message: "importing" }));
             try {
-              const result = await importExistingRepo(
-                "hummer98",
-                cmd.repoName
-              );
+              const result = await importExistingRepo(getOwner(), cmd.repoName);
               if (result.success) {
                 ws.send(
                   JSON.stringify({
@@ -245,6 +266,230 @@ export function registerWsHandler(
               );
             }
             break;
+          }
+        }
+      };
+
+      const handleMessage = async (
+        msg: WsInboundMessage,
+        ws: { send: (data: string) => void }
+      ): Promise<void> => {
+        switch (msg.type) {
+          case "chat": {
+            if (!msg.elementContext?.ocId) {
+              const cmd = detectCommand(msg.message);
+              if (cmd) {
+                log.info("Command detected", { command: cmd.type });
+                await handleCommand(cmd, ws);
+                return;
+              }
+            }
+            await handleChatMessage(msg, {
+              opencode: deps.opencode,
+              ws,
+              workspaceDir: deps.workspaceDir,
+              getSessionId: () => sessionId,
+              setSessionId: (id) => {
+                sessionId = id;
+              },
+              timer: inactivityTimer,
+            });
+            return;
+          }
+
+          case "undo": {
+            try {
+              const hash = undoLastCommit();
+              if (hash) {
+                ws.send(
+                  JSON.stringify({
+                    type: "git",
+                    action: "undo",
+                    message: `変更を元に戻しました (${hash})`,
+                  })
+                );
+                log.info("Undo completed", { hash });
+                autoPush().catch((err) =>
+                  log.error("Push after undo failed", { error: String(err) })
+                );
+              } else {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message: "元に戻す変更がありません",
+                  })
+                );
+              }
+            } catch (err) {
+              log.error("Undo failed", { error: String(err) });
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `元に戻す操作に失敗しました: ${err}`,
+                })
+              );
+            }
+            return;
+          }
+
+          case "history": {
+            try {
+              const commits = getHistory(msg.count ?? 20);
+              ws.send(JSON.stringify({ type: "history", commits }));
+              log.info("History sent", { count: commits.length });
+            } catch (err) {
+              log.error("History failed", { error: String(err) });
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `履歴の取得に失敗しました: ${err}`,
+                })
+              );
+            }
+            return;
+          }
+
+          case "revert": {
+            try {
+              ws.send(JSON.stringify({ type: "status", message: "reverting" }));
+              const newHash = revertToCommit(msg.hash);
+              if (newHash) {
+                ws.send(
+                  JSON.stringify({
+                    type: "git",
+                    action: "revert",
+                    message: `${msg.hash} の状態に戻しました (${newHash})`,
+                  })
+                );
+                log.info("Revert to commit completed", {
+                  target: msg.hash,
+                  newHash,
+                });
+                autoPush().catch((err) =>
+                  log.error("Push after revert failed", { error: String(err) })
+                );
+              } else {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message: "指定の状態に戻せませんでした",
+                  })
+                );
+              }
+            } catch (err) {
+              log.error("Revert failed", { error: String(err) });
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `戻す操作に失敗しました: ${err}`,
+                })
+              );
+            }
+            return;
+          }
+
+          case "deploy": {
+            log.info("Deploy requested", { siteName: deps.siteDomain });
+            ws.send(JSON.stringify({ type: "status", message: "deploying" }));
+            try {
+              const result = await deploy(deps.siteDomain);
+              if (result.success) {
+                ws.send(
+                  JSON.stringify({
+                    type: "deploy",
+                    success: true,
+                    url: result.pagesUrl,
+                  })
+                );
+              } else {
+                ws.send(
+                  JSON.stringify({
+                    type: "deploy",
+                    success: false,
+                    error: result.error,
+                  })
+                );
+              }
+            } catch (err) {
+              log.error("Deploy failed", { error: String(err) });
+              ws.send(
+                JSON.stringify({
+                  type: "deploy",
+                  success: false,
+                  error: String(err),
+                })
+              );
+            }
+            return;
+          }
+
+          case "create-site": {
+            // owner はクライアント値を信用せず、サーバー側の env で固定
+            const owner = getOwner();
+            log.info("Create site requested", {
+              owner,
+              siteName: msg.siteName,
+            });
+            if (msg.owner && msg.owner !== owner) {
+              log.warn("Ignoring client-supplied owner", {
+                clientOwner: msg.owner,
+              });
+            }
+            ws.send(JSON.stringify({ type: "status", message: "creating" }));
+            try {
+              const result = await createNewSite(owner, msg.siteName);
+              if (result.success) {
+                ws.send(
+                  JSON.stringify({
+                    type: "site-init",
+                    action: "created",
+                    repoUrl: result.repoUrl,
+                  })
+                );
+              } else {
+                ws.send(
+                  JSON.stringify({ type: "error", message: result.error })
+                );
+              }
+            } catch (err) {
+              log.error("Create site failed", { error: String(err) });
+              ws.send(JSON.stringify({ type: "error", message: String(err) }));
+            }
+            return;
+          }
+
+          case "import-repo": {
+            const owner = getOwner();
+            log.info("Import repo requested", {
+              owner,
+              repoName: msg.repoName,
+            });
+            if (msg.owner && msg.owner !== owner) {
+              log.warn("Ignoring client-supplied owner", {
+                clientOwner: msg.owner,
+              });
+            }
+            ws.send(JSON.stringify({ type: "status", message: "importing" }));
+            try {
+              const result = await importExistingRepo(owner, msg.repoName);
+              if (result.success) {
+                ws.send(
+                  JSON.stringify({
+                    type: "site-init",
+                    action: "imported",
+                    repoUrl: result.repoUrl,
+                  })
+                );
+              } else {
+                ws.send(
+                  JSON.stringify({ type: "error", message: result.error })
+                );
+              }
+            } catch (err) {
+              log.error("Import repo failed", { error: String(err) });
+              ws.send(JSON.stringify({ type: "error", message: String(err) }));
+            }
+            return;
           }
         }
       };
@@ -309,205 +554,36 @@ export function registerWsHandler(
         },
 
         async onMessage(event, ws) {
-          const data = JSON.parse(event.data as string);
-          log.info("WS message received", { type: data.type });
-
-          if (data.type === "chat") {
-            if (!data.elementContext?.ocId) {
-              const cmd = detectCommand(data.message);
-              if (cmd) {
-                log.info("Command detected", { command: cmd.type });
-                await handleCommand(cmd, ws);
-                return;
-              }
-            }
-
-            await handleChatMessage(data, {
-              opencode: deps.opencode,
-              ws,
-              workspaceDir: deps.workspaceDir,
-              getSessionId: () => sessionId,
-              setSessionId: (id) => {
-                sessionId = id;
-              },
-              timer: inactivityTimer,
+          let raw: unknown;
+          try {
+            raw = JSON.parse(event.data as string);
+          } catch (err) {
+            log.warn("WS message parse failed (invalid JSON)", {
+              error: String(err),
             });
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: "Invalid message",
+              })
+            );
+            return;
           }
 
-          if (data.type === "undo") {
-            try {
-              const hash = undoLastCommit();
-              if (hash) {
-                ws.send(
-                  JSON.stringify({
-                    type: "git",
-                    action: "undo",
-                    message: `変更を元に戻しました (${hash})`,
-                  })
-                );
-                log.info("Undo completed", { hash });
-                autoPush().catch((err) =>
-                  log.error("Push after undo failed", { error: String(err) })
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({
-                    type: "error",
-                    message: "元に戻す変更がありません",
-                  })
-                );
-              }
-            } catch (err) {
-              log.error("Undo failed", { error: String(err) });
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: `元に戻す操作に失敗しました: ${err}`,
-                })
-              );
-            }
+          const parsed = parseWsMessage(raw);
+          if (!parsed.ok) {
+            log.warn("WS message schema rejected", { error: parsed.error });
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: "Invalid message",
+              })
+            );
+            return;
           }
 
-          if (data.type === "history") {
-            try {
-              const commits = getHistory(data.count ?? 20);
-              ws.send(JSON.stringify({ type: "history", commits }));
-              log.info("History sent", { count: commits.length });
-            } catch (err) {
-              log.error("History failed", { error: String(err) });
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: `履歴の取得に失敗しました: ${err}`,
-                })
-              );
-            }
-          }
-
-          if (data.type === "revert") {
-            try {
-              ws.send(JSON.stringify({ type: "status", message: "reverting" }));
-              const newHash = revertToCommit(data.hash);
-              if (newHash) {
-                ws.send(
-                  JSON.stringify({
-                    type: "git",
-                    action: "revert",
-                    message: `${data.hash} の状態に戻しました (${newHash})`,
-                  })
-                );
-                log.info("Revert to commit completed", {
-                  target: data.hash,
-                  newHash,
-                });
-                autoPush().catch((err) =>
-                  log.error("Push after revert failed", { error: String(err) })
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({
-                    type: "error",
-                    message: "指定の状態に戻せませんでした",
-                  })
-                );
-              }
-            } catch (err) {
-              log.error("Revert failed", { error: String(err) });
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: `戻す操作に失敗しました: ${err}`,
-                })
-              );
-            }
-          }
-
-          if (data.type === "deploy") {
-            log.info("Deploy requested", { siteName: deps.siteDomain });
-            ws.send(JSON.stringify({ type: "status", message: "deploying" }));
-
-            try {
-              const result = await deploy(deps.siteDomain);
-              if (result.success) {
-                ws.send(
-                  JSON.stringify({
-                    type: "deploy",
-                    success: true,
-                    url: result.pagesUrl,
-                  })
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({
-                    type: "deploy",
-                    success: false,
-                    error: result.error,
-                  })
-                );
-              }
-            } catch (err) {
-              log.error("Deploy failed", { error: String(err) });
-              ws.send(
-                JSON.stringify({
-                  type: "deploy",
-                  success: false,
-                  error: String(err),
-                })
-              );
-            }
-          }
-
-          if (data.type === "create-site") {
-            const { owner, siteName } = data;
-            log.info("Create site requested", { owner, siteName });
-            ws.send(JSON.stringify({ type: "status", message: "creating" }));
-
-            try {
-              const result = await createNewSite(owner, siteName);
-              if (result.success) {
-                ws.send(
-                  JSON.stringify({
-                    type: "site-init",
-                    action: "created",
-                    repoUrl: result.repoUrl,
-                  })
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({ type: "error", message: result.error })
-                );
-              }
-            } catch (err) {
-              log.error("Create site failed", { error: String(err) });
-              ws.send(JSON.stringify({ type: "error", message: String(err) }));
-            }
-          }
-
-          if (data.type === "import-repo") {
-            const { owner, repoName } = data;
-            log.info("Import repo requested", { owner, repoName });
-            ws.send(JSON.stringify({ type: "status", message: "importing" }));
-
-            try {
-              const result = await importExistingRepo(owner, repoName);
-              if (result.success) {
-                ws.send(
-                  JSON.stringify({
-                    type: "site-init",
-                    action: "imported",
-                    repoUrl: result.repoUrl,
-                  })
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({ type: "error", message: result.error })
-                );
-              }
-            } catch (err) {
-              log.error("Import repo failed", { error: String(err) });
-              ws.send(JSON.stringify({ type: "error", message: String(err) }));
-            }
-          }
+          log.info("WS message received", { type: parsed.data.type });
+          await handleMessage(parsed.data, ws);
         },
 
         onClose() {

@@ -91,14 +91,20 @@ export function undoLastCommit(): string | null {
 }
 
 /**
- * コミット履歴を取得
+ * コミット履歴を取得。
+ *
+ * Zod 層を経由しない呼び出しがあっても安全になるよう、関数内でも
+ * count を [1, 100] にクランプし、NaN/Infinity はデフォルト 20 にフォールバックする。
  */
 export function getHistory(count: number = 20): { hash: string; message: string; date: string }[] {
+  const safe = Number.isFinite(count)
+    ? Math.max(1, Math.min(100, Math.floor(count)))
+    : 20;
   try {
     const raw = git(
       "log",
       `--pretty=format:%h%n%s%n%ci`,
-      `-${count}`
+      `-${safe}`
     );
     if (!raw) return [];
 
@@ -121,8 +127,17 @@ export function getHistory(count: number = 20): { hash: string; message: string;
 
 /**
  * 指定コミットの状態にファイルを戻す（新規コミットとして記録）
+ *
+ * 入口で hash を再検証する (Zod 層との二重防御)。git execFileSync は引数配列で渡るため
+ * シェル注入は起きないが、`-` 始まりのオプション偽装や空白文字が紛れる事故を未然に防ぐ。
  */
+const HASH_REGEX = /^[0-9a-f]{4,40}$/;
+
 export function revertToCommit(hash: string): string | null {
+  if (!HASH_REGEX.test(hash)) {
+    log.error("Revert to commit failed: invalid hash", { hash });
+    return null;
+  }
   try {
     git("checkout", hash, "--", ".");
     git("add", "-A");

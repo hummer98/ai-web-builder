@@ -9,7 +9,9 @@
     "@octokit/rest": "^22.0.1",
     "@opencode-ai/sdk": "^1.2.27",
     "hono": "^4.7.0",
-    "jsonwebtoken": "^9.0.3"
+    "jose": "^6.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^4.4.2"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
