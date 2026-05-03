@@ -7,6 +7,7 @@ import { join, extname, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "./logger.js";
 import { createVerifier, type Verifier } from "./auth.js";
+import { sanitizeError } from "./utils.js";
 
 const log = createLogger("agent-server");
 
@@ -18,7 +19,7 @@ const UPLOAD_MIME_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
   ".gif": "image/gif",
-  ".svg": "image/svg+xml",
+  // ".svg" は Stored XSS のため許可しない (T013)
 };
 
 export type CreateAppOpts = {
@@ -174,7 +175,11 @@ export function createApp(opts: CreateAppOpts = {}) {
         return c.json({ error: "Only image files are allowed" }, 400);
       }
 
-      const ext = extname(file.name) || ".png";
+      // 拡張子ホワイトリスト検証 (T013: SVG 等の XSS 経路を遮断する二重防御)
+      const ext = (extname(file.name) || ".png").toLowerCase();
+      if (!UPLOAD_MIME_TYPES[ext]) {
+        return c.json({ error: "Unsupported file type" }, 415);
+      }
       const filename = `${randomUUID()}${ext}`;
       const uploadsDir = join(WORKSPACE_DIR, "public", "uploads");
       mkdirSync(uploadsDir, { recursive: true });
@@ -185,7 +190,7 @@ export function createApp(opts: CreateAppOpts = {}) {
       log.info("File uploaded", { filename, size: file.size });
       return c.json({ url: `/uploads/${filename}` });
     } catch (err) {
-      log.error("Upload failed", { error: String(err) });
+      log.error("Upload failed", { error: sanitizeError(err) });
       return c.json({ error: "Upload failed" }, 500);
     }
   });

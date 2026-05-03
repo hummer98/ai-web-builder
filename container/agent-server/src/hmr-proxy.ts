@@ -2,6 +2,7 @@ import { createConnection } from "node:net";
 import type { Server } from "node:http";
 import type { Socket } from "node:net";
 import { createLogger } from "./logger.js";
+import { sanitizeError } from "./utils.js";
 
 const log = createLogger("hmr-proxy");
 
@@ -40,7 +41,7 @@ export function setupHmrProxy(
     });
 
     proxy.on("error", (err) => {
-      log.warn("HMR proxy error", { error: String(err) });
+      log.warn("HMR proxy error", { error: sanitizeError(err) });
       try { socket.destroy(); } catch {}
     });
     socket.on("error", () => {

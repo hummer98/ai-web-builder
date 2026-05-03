@@ -1,6 +1,6 @@
 import type { createOpencodeClient } from "@opencode-ai/sdk";
 import type { TextPartInput, FilePartInput } from "@opencode-ai/sdk";
-import { buildPrompt } from "./utils.js";
+import { buildPrompt, sanitizeError } from "./utils.js";
 import { buildImagePart } from "./image-part.js";
 import { createLogger } from "./logger.js";
 
@@ -29,7 +29,7 @@ export function runInactivityTimeout(ctx: {
   );
   if (sessionId) {
     ctx.opencode.session.abort({ path: { id: sessionId } }).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = sanitizeError(err);
       log.error("session.abort failed", { message });
     });
   }

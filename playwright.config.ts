@@ -1,5 +1,12 @@
 import { defineConfig } from "@playwright/test";
 
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD;
+if (!DEMO_PASSWORD) {
+  throw new Error(
+    "DEMO_PASSWORD env var is required to run Playwright tests (set in .envrc or shell)"
+  );
+}
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 180_000, // AI 応答を待つため長め
@@ -9,7 +16,7 @@ export default defineConfig({
     screenshot: "on",
     httpCredentials: {
       username: "demo",
-      password: process.env.DEMO_PASSWORD ?? "ai-web-builder-2026",
+      password: DEMO_PASSWORD,
     },
   },
   outputDir: "./e2e/results",

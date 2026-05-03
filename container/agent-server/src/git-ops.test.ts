@@ -190,6 +190,47 @@ describe("git-ops", () => {
     });
   });
 
+  describe("autoPush() does not leak token in logs (regression for T013)", () => {
+    it("when push fails, logs must not include the GitHub App installation token", async () => {
+      // 初期コミットを作って push 実行可能な状態にする
+      writeFileSync(join(tmpDir, "f.txt"), "x");
+      gitInTmp("add", "-A");
+      gitInTmp("commit", "-m", "initial");
+
+      // リモートを到達不能 URL で登録 (TLD .invalid は DNS で即失敗)
+      gitInTmp("remote", "add", "origin", "https://github.com/nonexistent/repo.invalid");
+
+      // github-app をモックしてダミートークンを返す
+      vi.doMock("./github-app.js", () => ({
+        isGitHubAppConfigured: () => true,
+        getInstallationToken: async () => "ghs_FAKE_TOKEN_XYZ",
+        getOctokit: async () => ({}),
+      }));
+      vi.resetModules();
+      const fresh = await import("./git-ops.js");
+
+      // logger は内部で console.error / console.log と appendFileSync を使う。
+      // ファイル経路は logger.ts の AGENT_LOG_PATH 依存なので console をスパイすれば十分。
+      const captured: string[] = [];
+      const errSpy = vi.spyOn(console, "error").mockImplementation((...a) => {
+        captured.push(a.map(String).join(" "));
+      });
+      const logSpy = vi.spyOn(console, "log").mockImplementation((...a) => {
+        captured.push(a.map(String).join(" "));
+      });
+
+      await fresh.autoPush();
+
+      const all = captured.join("\n");
+      expect(all).not.toContain("ghs_FAKE_TOKEN_XYZ");
+      expect(all).toMatch(/REDACTED|Auto-push failed/);
+
+      errSpy.mockRestore();
+      logSpy.mockRestore();
+      vi.doUnmock("./github-app.js");
+    });
+  });
+
   describe("revertToCommit(hash)", () => {
     it("returns null for non-hex hash (defensive guard)", () => {
       writeFileSync(join(tmpDir, "f.txt"), "x");

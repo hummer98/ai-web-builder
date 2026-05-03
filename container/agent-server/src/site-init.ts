@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { postprocessOpencodeJson } from "../../opencode-postprocess.mjs";
 import { getOctokit, getInstallationToken, isGitHubAppConfigured } from "./github-app.js";
 import { createLogger } from "./logger.js";
+import { sanitizeError } from "./utils.js";
 
 const log = createLogger("agent-server");
 
@@ -112,7 +113,7 @@ export async function createNewSite(
 
     return { success: true, workspacePath, repoUrl };
   } catch (err) {
-    const error = String(err);
+    const error = sanitizeError(err);
     log.error("Site creation failed", { siteName, error });
     return { success: false, workspacePath, error };
   }
@@ -164,7 +165,7 @@ export async function importExistingRepo(
 
     return { success: true, workspacePath, repoUrl };
   } catch (err) {
-    const error = String(err);
+    const error = sanitizeError(err);
     log.error("Repo import failed", { repoName, error });
     return { success: false, workspacePath, error };
   }
@@ -216,7 +217,7 @@ export async function resetWorkspace(): Promise<{ success: boolean; error?: stri
     log.info("Workspace reset to scaffold");
     return { success: true };
   } catch (err) {
-    log.error("Workspace reset failed", { error: String(err) });
-    return { success: false, error: String(err) };
+    log.error("Workspace reset failed", { error: sanitizeError(err) });
+    return { success: false, error: sanitizeError(err) };
   }
 }

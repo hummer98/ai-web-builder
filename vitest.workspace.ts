@@ -1,1 +1,5 @@
-export default ["container/agent-server", "container/log-reader-mcp"];
+export default [
+  "container/agent-server",
+  "container/log-reader-mcp",
+  "container/scaffold",
+];

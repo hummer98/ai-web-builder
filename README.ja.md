@@ -97,7 +97,7 @@ ai-web-builder/
 ## ローカル開発
 
 ```bash
-direnv allow    # .envrc のシークレット読み込み
+cp .envrc.example .envrc && direnv allow   # 初回のみ: テンプレートをコピーしてシークレット読み込み
 npm run dev     # 4プロセス並列起動:
                 #   Agent Server     :8080
                 #   opencode serve   :4096

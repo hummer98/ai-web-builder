@@ -1,4 +1,20 @@
 /**
+ * エラー文字列に含まれる GitHub App インストールトークンを除去する。
+ *
+ * `https://x-access-token:<token>@github.com/...` の <token> は短命だが
+ * Error.message 経由でログ / クライアント送信に乗ると Issue 作成権限を
+ * 漏らすため、文字列化と同時に必ずマスクする。
+ *
+ * NOTE: `err.stderr` (Buffer) は Error.message / Error.stack のいずれにも
+ * 自動では含まれない。`execFileSync` のデバッグで `err.stderr.toString()` を
+ * ログに渡すケースを追加する場合は、その文字列も sanitizeError() に通すこと。
+ */
+export function sanitizeError(err: unknown): string {
+  const raw = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  return raw.replace(/x-access-token:[^@\s'"]+@/g, "x-access-token:[REDACTED]@");
+}
+
+/**
  * AI 応答テキストからコミットメッセージ用の要約を作成（50文字程度）
  */
 export function truncateForCommit(text: string): string {

@@ -1,5 +1,56 @@
 import { describe, it, expect } from "vitest";
-import { truncateForCommit, buildPrompt, detectCommand } from "./utils.js";
+import {
+  truncateForCommit,
+  buildPrompt,
+  detectCommand,
+  sanitizeError,
+} from "./utils.js";
+
+// ---------------------------------------------------------------------------
+// sanitizeError
+// ---------------------------------------------------------------------------
+describe("sanitizeError", () => {
+  it("redacts x-access-token in URL", () => {
+    const err = new Error(
+      "Command failed: git push https://x-access-token:ghs_abc123@github.com/owner/repo.git HEAD:main"
+    );
+    expect(sanitizeError(err)).toContain("x-access-token:[REDACTED]@");
+    expect(sanitizeError(err)).not.toContain("ghs_abc123");
+  });
+
+  it("preserves non-token error text", () => {
+    expect(sanitizeError(new Error("ECONNREFUSED 127.0.0.1:5173"))).toContain(
+      "ECONNREFUSED"
+    );
+  });
+
+  it("handles non-Error values (string, undefined, object) without throwing", () => {
+    expect(sanitizeError("plain string")).toBe("plain string");
+    expect(sanitizeError(undefined)).toBe("undefined");
+    // 一般 object は String(obj) → "[object Object]" のためトークン文字列は元々消えるが、
+    // toString() が token を露出するケースをカバー
+    const objWithToken = {
+      toString: () => "x-access-token:foo@github.com/owner/repo",
+    };
+    expect(sanitizeError(objWithToken)).toContain("[REDACTED]");
+    expect(sanitizeError(objWithToken)).not.toContain("foo");
+  });
+
+  it("redacts token even when present in stack trace", () => {
+    const err = new Error("boom");
+    err.stack =
+      "Error: boom\n  at git push https://x-access-token:ghs_xyz@github.com/...";
+    expect(sanitizeError(err)).not.toContain("ghs_xyz");
+  });
+
+  it("handles multiple occurrences in one string", () => {
+    const s =
+      "a https://x-access-token:T1@github.com/.. b https://x-access-token:T2@github.com/..";
+    const out = sanitizeError(s);
+    expect(out).not.toContain("T1");
+    expect(out).not.toContain("T2");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // truncateForCommit

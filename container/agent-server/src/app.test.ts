@@ -162,6 +162,39 @@ describe("app HTTP routes", () => {
       const json = (await res.json()) as { error: string };
       expect(json.error).toBe("Only image files are allowed");
     });
+
+    it("rejects SVG upload (XSS prevention, T013)", async () => {
+      const app = await getApp();
+      const formData = new FormData();
+      const svg = new TextEncoder().encode(
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+      );
+      const file = new File([svg], "evil.svg", { type: "image/svg+xml" });
+      formData.append("file", file);
+      const res = await app.request("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      expect(res.status).toBe(415);
+    });
+
+    it("falls back to .png when filename has no extension (T013 edge case)", async () => {
+      const app = await getApp();
+      const formData = new FormData();
+      // 拡張子なしのファイル名 + image/svg+xml content-type
+      const svg = new TextEncoder().encode("<svg/>");
+      const file = new File([svg], "noext", { type: "image/svg+xml" });
+      formData.append("file", file);
+      const res = await app.request("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      // 拡張子フォールバック .png でホワイトリスト OK → 200
+      // 配信側で image/png として返るため <script> は実行されない
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { url: string };
+      expect(json.url).toMatch(/^\/uploads\/.*\.png$/);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -194,14 +227,19 @@ describe("app HTTP routes", () => {
       expect(r2.headers.get("content-type")).toBe("image/jpeg");
     });
 
-    it("returns 200 with image/webp / image/gif / image/svg+xml", async () => {
+    it("returns 200 with image/webp / image/gif", async () => {
       const app = await getApp();
       placeFile("a.webp", new Uint8Array([0x52, 0x49, 0x46, 0x46]));
       placeFile("a.gif", new Uint8Array([0x47, 0x49, 0x46]));
-      placeFile("a.svg", new TextEncoder().encode("<svg/>"));
       expect((await app.request("/uploads/a.webp")).headers.get("content-type")).toBe("image/webp");
       expect((await app.request("/uploads/a.gif")).headers.get("content-type")).toBe("image/gif");
-      expect((await app.request("/uploads/a.svg")).headers.get("content-type")).toBe("image/svg+xml");
+    });
+
+    it("does not serve .svg from /uploads (XSS prevention, T013)", async () => {
+      const app = await getApp();
+      placeFile("a.svg", new TextEncoder().encode("<svg/>"));
+      const res = await app.request("/uploads/a.svg");
+      expect(res.status).toBe(404);
     });
 
     it("treats uppercase extension as same MIME (.PNG → image/png)", async () => {

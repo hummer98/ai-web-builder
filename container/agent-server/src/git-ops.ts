@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { getInstallationToken, getOctokit, isGitHubAppConfigured } from "./github-app.js";
 import { createLogger } from "./logger.js";
+import { sanitizeError } from "./utils.js";
 
 const log = createLogger("agent-server");
 
@@ -67,7 +68,7 @@ export async function autoPush(): Promise<void> {
     git("push", authedUrl, "HEAD:main");
     log.info("Auto-pushed to GitHub");
   } catch (err) {
-    log.error("Auto-push failed", { error: String(err) });
+    log.error("Auto-push failed", { error: sanitizeError(err) });
   }
 }
 
@@ -85,7 +86,7 @@ export function undoLastCommit(): string | null {
     log.info("Reverted last commit", { hash });
     return hash;
   } catch (err) {
-    log.error("Revert failed", { error: String(err) });
+    log.error("Revert failed", { error: sanitizeError(err) });
     return null;
   }
 }
@@ -120,7 +121,7 @@ export function getHistory(count: number = 20): { hash: string; message: string;
     log.info("Got history", { count: commits.length });
     return commits;
   } catch (err) {
-    log.error("Get history failed", { error: String(err) });
+    log.error("Get history failed", { error: sanitizeError(err) });
     return [];
   }
 }
@@ -150,7 +151,7 @@ export function revertToCommit(hash: string): string | null {
     log.info("Reverted to commit", { target: hash, newHash });
     return newHash;
   } catch (err) {
-    log.error("Revert to commit failed", { error: String(err) });
+    log.error("Revert to commit failed", { error: sanitizeError(err) });
     return null;
   }
 }
@@ -180,7 +181,7 @@ export async function createIssue(
     log.info("Issue created", { number: data.number, title });
     return data.number;
   } catch (err) {
-    log.error("Issue creation failed", { error: String(err) });
+    log.error("Issue creation failed", { error: sanitizeError(err) });
     return null;
   }
 }

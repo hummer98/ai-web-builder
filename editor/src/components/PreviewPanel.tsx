@@ -5,6 +5,10 @@ const PREVIEW_URL =
     ? "http://localhost:5173"
     : `${window.location.origin}/preview/`;
 
+// postMessage の origin 検証用 (T013)。本番では editor と preview は同一オリジン。
+// DEV では localhost:5173 (Vite) を期待する。
+const PREVIEW_ORIGIN = new URL(PREVIEW_URL, window.location.href).origin;
+
 const SIZES = [
   { label: "Desktop", width: "100%" },
   { label: "Tablet", width: "768px" },
@@ -37,6 +41,8 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
   // Iframe からの postMessage を受信
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
+      // origin 検証 (T013): 期待する preview オリジン以外からのメッセージは無視
+      if (e.origin !== PREVIEW_ORIGIN) return;
       const data = e.data;
       if (!data?.type) return;
 
@@ -65,7 +71,7 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
     setInspectMode(next);
     iframeRef.current?.contentWindow?.postMessage(
       { type: "set-inspect-mode", enabled: next },
-      "*"
+      PREVIEW_ORIGIN
     );
   }, [inspectMode]);
 

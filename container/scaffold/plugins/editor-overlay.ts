@@ -55,6 +55,20 @@ const OVERLAY_SCRIPT = `
 const LABELS = ${JSON.stringify(SEMANTIC_LABELS)};
 const TAG_LABELS = ${JSON.stringify(TAG_LABELS)};
 
+// 親オリジンの推定 (postMessage origin 検証用、T013)
+// 本番: editor と preview は同一オリジン (Fly.io 上で Hono が Vite を proxy)
+//   → window.location.origin を targetOrigin に使う
+// DEV (localhost / 127.0.0.1): editor :3001 と preview :5173 で cross-origin
+//   → '*' フォールバック (脅威モデル: 開発機マシン上のみ。プロダクション影響なし)
+// IPv6 ループバック ([::1]) や 0.0.0.0 は本番扱い (= window.location.origin 強制)
+//   仮に開発で使われても origin 不一致で弾かれるが、実用上問題なし
+const __PARENT_ORIGIN__ = (function() {
+  const isLocal =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1';
+  return isLocal ? '*' : window.location.origin;
+})();
+
 let inspectMode = false;
 let highlightEl = null;
 let labelEls = [];
@@ -141,6 +155,8 @@ let menuContext = null;
 
 // 親ウィンドウからのメッセージ受信
 window.addEventListener('message', (e) => {
+  // origin 検証 (T013): DEV の '*' は緩和して localhost cross-origin に対応
+  if (__PARENT_ORIGIN__ !== '*' && e.origin !== __PARENT_ORIGIN__) return;
   if (e.data?.type === 'set-inspect-mode') {
     inspectMode = e.data.enabled;
     if (!inspectMode) {
@@ -305,7 +321,7 @@ btnEditText.addEventListener('click', (e) => {
     const newText = editArea.value;
     closeEditArea();
     cleanup();
-    window.parent.postMessage({ type: 'edit-text', context: ctx, newText }, '*');
+    window.parent.postMessage({ type: 'edit-text', context: ctx, newText }, __PARENT_ORIGIN__);
   };
   const cancel = () => {
     closeEditArea();
@@ -353,7 +369,7 @@ btnReplaceImage.addEventListener('click', (e) => {
       binary += String.fromCharCode(bytes[i]);
     }
     const fileData = btoa(binary);
-    window.parent.postMessage({ type: 'replace-image', context: ctx, fileName: file.name, fileData }, '*');
+    window.parent.postMessage({ type: 'replace-image', context: ctx, fileName: file.name, fileData }, __PARENT_ORIGIN__);
   };
   fileInput.click();
 });
@@ -364,7 +380,7 @@ btnDelete.addEventListener('click', (e) => {
   const ctx = menuContext;
   closeContextMenu();
   if (!ctx) return;
-  window.parent.postMessage({ type: 'delete-element', context: ctx }, '*');
+  window.parent.postMessage({ type: 'delete-element', context: ctx }, __PARENT_ORIGIN__);
 });
 
 // ---------- アクション: チャットで指示 ----------
@@ -373,7 +389,7 @@ btnChat.addEventListener('click', (e) => {
   const ctx = menuContext;
   closeContextMenu();
   if (!ctx) return;
-  window.parent.postMessage({ type: 'element-selected', context: ctx }, '*');
+  window.parent.postMessage({ type: 'element-selected', context: ctx }, __PARENT_ORIGIN__);
 });
 
 // セマンティックラベル表示

@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
+import { sanitizeError } from "./utils.js";
 
 export type VerifyResult =
   | { ok: true; payload: JWTPayload }
@@ -21,7 +22,7 @@ export type CreateVerifierOpts = {
  *
  * - issuer: `https://<teamDomain>`
  * - audience: AUD タグ
- * - 検証失敗時は `String(err)` のメッセージのみ error に詰める。
+ * - 検証失敗時は `sanitizeError(err)` のメッセージのみ error に詰める。
  *   トークン本体・payload はログに出さない (CLAUDE.md: シークレット未ログ)。
  */
 export function createVerifier(opts: CreateVerifierOpts): Verifier {
@@ -39,7 +40,7 @@ export function createVerifier(opts: CreateVerifierOpts): Verifier {
       });
       return { ok: true, payload };
     } catch (err) {
-      return { ok: false, error: String(err) };
+      return { ok: false, error: sanitizeError(err) };
     }
   };
 }

@@ -97,7 +97,7 @@ The builder edits a **separate guest repository** per user — a standard React 
 ## Local development
 
 ```bash
-direnv allow    # Load secrets from .envrc
+cp .envrc.example .envrc && direnv allow   # First time only: copy template and load secrets
 npm run dev     # Starts 4 processes in parallel:
                 #   Agent Server     :8080
                 #   opencode serve   :4096

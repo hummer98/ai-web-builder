@@ -6,7 +6,7 @@ import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from
 import { deploy } from "./deploy.js";
 import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
 import { createLogger } from "./logger.js";
-import { detectCommand, HELP_TEXT } from "./utils.js";
+import { detectCommand, HELP_TEXT, sanitizeError } from "./utils.js";
 import type { Command } from "./utils.js";
 import { handleChatMessage, runInactivityTimeout } from "./chat-handler.js";
 import { createInactivityTimer, type InactivityTimer } from "./timeout.js";
@@ -91,7 +91,7 @@ export function registerWsHandler(
                     );
                   }
                 } catch (err) {
-                  log.error("Background git ops failed", { error: String(err) });
+                  log.error("Background git ops failed", { error: sanitizeError(err) });
                 }
               })();
             }
@@ -310,7 +310,7 @@ export function registerWsHandler(
                 );
                 log.info("Undo completed", { hash });
                 autoPush().catch((err) =>
-                  log.error("Push after undo failed", { error: String(err) })
+                  log.error("Push after undo failed", { error: sanitizeError(err) })
                 );
               } else {
                 ws.send(
@@ -321,7 +321,7 @@ export function registerWsHandler(
                 );
               }
             } catch (err) {
-              log.error("Undo failed", { error: String(err) });
+              log.error("Undo failed", { error: sanitizeError(err) });
               ws.send(
                 JSON.stringify({
                   type: "error",
@@ -338,7 +338,7 @@ export function registerWsHandler(
               ws.send(JSON.stringify({ type: "history", commits }));
               log.info("History sent", { count: commits.length });
             } catch (err) {
-              log.error("History failed", { error: String(err) });
+              log.error("History failed", { error: sanitizeError(err) });
               ws.send(
                 JSON.stringify({
                   type: "error",
@@ -366,7 +366,7 @@ export function registerWsHandler(
                   newHash,
                 });
                 autoPush().catch((err) =>
-                  log.error("Push after revert failed", { error: String(err) })
+                  log.error("Push after revert failed", { error: sanitizeError(err) })
                 );
               } else {
                 ws.send(
@@ -377,7 +377,7 @@ export function registerWsHandler(
                 );
               }
             } catch (err) {
-              log.error("Revert failed", { error: String(err) });
+              log.error("Revert failed", { error: sanitizeError(err) });
               ws.send(
                 JSON.stringify({
                   type: "error",
@@ -411,12 +411,12 @@ export function registerWsHandler(
                 );
               }
             } catch (err) {
-              log.error("Deploy failed", { error: String(err) });
+              log.error("Deploy failed", { error: sanitizeError(err) });
               ws.send(
                 JSON.stringify({
                   type: "deploy",
                   success: false,
-                  error: String(err),
+                  error: sanitizeError(err),
                 })
               );
             }
@@ -452,8 +452,8 @@ export function registerWsHandler(
                 );
               }
             } catch (err) {
-              log.error("Create site failed", { error: String(err) });
-              ws.send(JSON.stringify({ type: "error", message: String(err) }));
+              log.error("Create site failed", { error: sanitizeError(err) });
+              ws.send(JSON.stringify({ type: "error", message: sanitizeError(err) }));
             }
             return;
           }
@@ -486,8 +486,8 @@ export function registerWsHandler(
                 );
               }
             } catch (err) {
-              log.error("Import repo failed", { error: String(err) });
-              ws.send(JSON.stringify({ type: "error", message: String(err) }));
+              log.error("Import repo failed", { error: sanitizeError(err) });
+              ws.send(JSON.stringify({ type: "error", message: sanitizeError(err) }));
             }
             return;
           }
@@ -537,12 +537,12 @@ export function registerWsHandler(
                 }
                 log.info("Event stream ended");
               } catch (err) {
-                log.error("Event stream error", { error: String(err) });
+                log.error("Event stream error", { error: sanitizeError(err) });
               }
             })();
           } catch (err) {
             log.error("OpenCode client subscribe failed", {
-              error: String(err),
+              error: sanitizeError(err),
             });
             ws.send(
               JSON.stringify({
@@ -559,7 +559,7 @@ export function registerWsHandler(
             raw = JSON.parse(event.data as string);
           } catch (err) {
             log.warn("WS message parse failed (invalid JSON)", {
-              error: String(err),
+              error: sanitizeError(err),
             });
             ws.send(
               JSON.stringify({
@@ -597,7 +597,7 @@ export function registerWsHandler(
         },
 
         onError(error) {
-          log.error("WS error", { error: String(error) });
+          log.error("WS error", { error: sanitizeError(error) });
         },
       };
     })

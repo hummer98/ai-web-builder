@@ -1,0 +1,25 @@
+# direnv 用テンプレート: cp .envrc.example .envrc して編集後 `direnv allow`
+
+# OpenRouter (LLM)
+export OPENROUTER_API_KEY=
+
+# Cloudflare (デプロイ)
+export CLOUDFLARE_API_TOKEN=
+export CLOUDFLARE_ACCOUNT_ID=
+
+# GitHub App
+export GITHUB_APP_ID=
+export GITHUB_APP_PRIVATE_KEY=
+export GITHUB_OWNER=
+
+# Cloudflare Access (本番認証、Fly.io 専用)
+export CLOUDFLARE_ACCESS_AUD=
+export CLOUDFLARE_ACCESS_TEAM_DOMAIN=
+export ALLOWED_ORIGINS=
+
+# Playwright Demo (テスト用)
+export DEMO_PASSWORD=
+export DEMO_URL=
+
+# Image Generation (任意)
+export GEMINI_API_KEY=

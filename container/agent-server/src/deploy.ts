@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createLogger } from "./logger.js";
+import { sanitizeError } from "./utils.js";
 
 const log = createLogger("deploy");
 
@@ -68,7 +69,7 @@ export async function deploy(siteName: string): Promise<DeployResult> {
 
     return { success: true, pagesUrl };
   } catch (err) {
-    const error = String(err);
+    const error = sanitizeError(err);
     log.error("Deploy failed", { siteName, error });
     return { success: false, error };
   }
@@ -97,7 +98,7 @@ export async function uploadAsset(
     log.info("Asset uploaded to R2", { key, url });
     return url;
   } catch (err) {
-    log.error("R2 upload failed", { key, error: String(err) });
+    log.error("R2 upload failed", { key, error: sanitizeError(err) });
     return null;
   }
 }
