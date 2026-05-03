@@ -9,10 +9,18 @@ RUN curl -fsSL https://opencode.ai/install | bash && \
     find /root -name opencode -type f 2>/dev/null | head -1 | xargs -I{} cp {} /usr/local/bin/opencode
 
 # Playwright MCP + Chromium（AI 視覚フィードバック用）
-RUN npm i -g @playwright/mcp && npx playwright install --with-deps chromium
+# 非 root 切替後に app ユーザーから browser が読める場所にインストール (T014)
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright
+RUN npm i -g @playwright/mcp && \
+    PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright npx playwright install --with-deps chromium && \
+    chmod -R a+rX /usr/local/share/playwright
 
 # Nano Banana MCP（AI 画像生成用）
 RUN npm i -g nano-banana-mcp
+
+# 非 root ユーザー作成 (UID 1001 で /data Fly Volume と整合させる)
+RUN groupadd -r app -g 1001 && \
+    useradd -r -g app -u 1001 -m -d /home/app app
 
 WORKDIR /app
 
@@ -48,8 +56,9 @@ RUN cd container/scaffold && npm install
 COPY container/agent-server/ container/agent-server/
 COPY container/log-reader-mcp/ container/log-reader-mcp/
 
-# ログディレクトリ
-RUN mkdir -p /app/logs
+# ログディレクトリ + Fly Volume マウントポイント
+RUN mkdir -p /app/logs /data && \
+    chown -R app:app /app /data /home/app
 
 EXPOSE 8080
 
@@ -57,11 +66,12 @@ EXPOSE 8080
 ENV WORKSPACE_DIR=/data/workspace
 ENV NODE_ENV=production
 
-# サイト設定
-COPY sites.json /app/sites.json
+# サイト設定は Fly Secret SITES_JSON 経由で読み込む (start.sh 内で展開)
 
 # 起動スクリプト
 COPY container/start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/start.sh && chown app:app /app/start.sh
+
+USER app
 
 CMD ["/app/start.sh"]

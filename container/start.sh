@@ -4,9 +4,25 @@ set -e
 WORKSPACE_DIR="${WORKSPACE_DIR:-/data/workspace}"
 LOGS_DIR="/app/logs"
 
+# Fly Volume /data の owner を app (UID 1001) に揃える防御策。
+# 非 root の USER app では失敗するが無害 (root 起動時のみ効く)。
+# 既存 Volume を非 root 化したときは summary.md の手順に従って一時 Machine から chown すること。
+if [ -d /data ]; then
+  chown -R 1001:1001 /data 2>/dev/null || true
+fi
+
 mkdir -p "$LOGS_DIR"
 
 echo "Starting AI Web Builder..."
+
+# Fly Secret から sites.json を生成 (機密情報のためリポジトリには含めない)
+if [ -n "$SITES_JSON" ]; then
+  printf '%s' "$SITES_JSON" > /app/sites.json
+  if ! jq -e . /app/sites.json > /dev/null 2>&1; then
+    echo "Warning: SITES_JSON is not valid JSON; falling back to scaffold mode"
+    rm -f /app/sites.json
+  fi
+fi
 
 # SITE_DOMAIN が設定されていれば sites.json からリポジトリを clone
 if [ -n "$SITE_DOMAIN" ] && [ -f /app/sites.json ]; then
@@ -84,7 +100,7 @@ rm -rf "$WORKSPACE_DIR/node_modules/.vite"
 
 # OpenCode serve (AI 編集エンジン)
 # stdout/stderr を Fly stdout と $LOGS_DIR/opencode.log の両方に流す
-(cd "$WORKSPACE_DIR" && opencode serve --port 4096 --hostname 0.0.0.0 2>&1 | tee -a "$LOGS_DIR/opencode.log") &
+(cd "$WORKSPACE_DIR" && opencode serve --port 4096 --hostname 127.0.0.1 2>&1 | tee -a "$LOGS_DIR/opencode.log") &
 
 # Agent Server (メインプロセス — フォアグラウンド)
 cd /app/container/agent-server && exec npx tsx src/index.ts 2>&1 | tee -a "$LOGS_DIR/agent-server.log"

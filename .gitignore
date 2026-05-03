@@ -12,3 +12,7 @@ logs/
 workspace/
 e2e/results/
 .worktrees/
+*.tsbuildinfo
+
+# サイト設定（機密情報を含むため Fly Secret SITES_JSON 経由で配布）
+sites.json
