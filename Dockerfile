@@ -72,6 +72,12 @@ ENV NODE_ENV=production
 COPY container/start.sh /app/start.sh
 RUN chmod +x /app/start.sh && chown app:app /app/start.sh
 
-USER app
+# 通常は USER app (UID 1001) で起動。
+# Volume の所有権リカバリ時のみ build-arg で root 起動を許可する:
+#   flyctl deploy --build-arg RUN_AS_USER=root
+# 起動後 start.sh 冒頭の `chown -R 1001:1001 /data` が走り、終わったら build-arg
+# 無しで再 deploy して app に戻す。
+ARG RUN_AS_USER=app
+USER ${RUN_AS_USER}
 
 CMD ["/app/start.sh"]
