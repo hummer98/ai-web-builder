@@ -101,7 +101,7 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
     if (inspectRequested && inspectRequested > 0) {
       toggleInspect();
     }
-  }, [inspectRequested]);
+  }, [inspectRequested, toggleInspect]);
 
   // refreshKey 変更時に iframe を reload（初回レンダリングはスキップ）
   const prevRefreshKey = useRef(refreshKey);

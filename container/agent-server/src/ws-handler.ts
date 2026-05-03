@@ -2,8 +2,7 @@ import type { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event } from "@opencode-ai/sdk";
 import type { createNodeWebSocket } from "@hono/node-ws";
 import type { Hono } from "hono";
-import { autoCommit, autoPush, undoLastCommit, getHistory, revertToCommit } from "./git-ops.js";
-import { deploy } from "./deploy.js";
+import { autoCommit, autoPush, getHistory, revertToCommit } from "./git-ops.js";
 import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
 import { createLogger } from "./logger.js";
 import { detectCommand, HELP_TEXT, sanitizeError } from "./utils.js";
@@ -16,6 +15,7 @@ import {
   INVALID_NAME_MESSAGE,
   type WsInboundMessage,
 } from "./ws-schema.js";
+import { executeUndo, executeDeploy } from "./ws-actions.js";
 
 const log = createLogger("agent-server");
 
@@ -124,46 +124,12 @@ export function registerWsHandler(
         switch (cmd.type) {
           case "undo": {
             ws.send(JSON.stringify({ type: "status", message: "undoing" }));
-            const hash = undoLastCommit();
-            if (hash) {
-              autoPush().catch(() => {});
-              ws.send(
-                JSON.stringify({
-                  type: "response",
-                  message: `変更を元に戻しました (commit: ${hash})`,
-                })
-              );
-            } else {
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: "元に戻せる変更がありませんでした",
-                })
-              );
-            }
+            await executeUndo(ws);
             break;
           }
 
           case "deploy": {
-            ws.send(JSON.stringify({ type: "status", message: "deploying" }));
-            const result = await deploy(deps.siteDomain);
-            if (result.success) {
-              ws.send(
-                JSON.stringify({
-                  type: "response",
-                  message: result.pagesUrl
-                    ? `サイトを公開しました！\n${result.pagesUrl}`
-                    : "サイトを公開しました！",
-                })
-              );
-            } else {
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: `公開に失敗しました: ${result.error}`,
-                })
-              );
-            }
+            await executeDeploy(ws, deps.siteDomain);
             break;
           }
 
@@ -298,37 +264,7 @@ export function registerWsHandler(
           }
 
           case "undo": {
-            try {
-              const hash = undoLastCommit();
-              if (hash) {
-                ws.send(
-                  JSON.stringify({
-                    type: "git",
-                    action: "undo",
-                    message: `変更を元に戻しました (${hash})`,
-                  })
-                );
-                log.info("Undo completed", { hash });
-                autoPush().catch((err) =>
-                  log.error("Push after undo failed", { error: sanitizeError(err) })
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({
-                    type: "error",
-                    message: "元に戻す変更がありません",
-                  })
-                );
-              }
-            } catch (err) {
-              log.error("Undo failed", { error: sanitizeError(err) });
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: `元に戻す操作に失敗しました: ${err}`,
-                })
-              );
-            }
+            await executeUndo(ws);
             return;
           }
 
@@ -389,37 +325,7 @@ export function registerWsHandler(
           }
 
           case "deploy": {
-            log.info("Deploy requested", { siteName: deps.siteDomain });
-            ws.send(JSON.stringify({ type: "status", message: "deploying" }));
-            try {
-              const result = await deploy(deps.siteDomain);
-              if (result.success) {
-                ws.send(
-                  JSON.stringify({
-                    type: "deploy",
-                    success: true,
-                    url: result.pagesUrl,
-                  })
-                );
-              } else {
-                ws.send(
-                  JSON.stringify({
-                    type: "deploy",
-                    success: false,
-                    error: result.error,
-                  })
-                );
-              }
-            } catch (err) {
-              log.error("Deploy failed", { error: sanitizeError(err) });
-              ws.send(
-                JSON.stringify({
-                  type: "deploy",
-                  success: false,
-                  error: sanitizeError(err),
-                })
-              );
-            }
+            await executeDeploy(ws, deps.siteDomain);
             return;
           }
 

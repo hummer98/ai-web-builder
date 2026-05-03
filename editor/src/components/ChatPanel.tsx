@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
-import type { WSMessage } from "../hooks/useWebSocket";
+import type { WSMessage, WSSendable } from "../hooks/useWebSocket";
 import type { ElementContext } from "./PreviewPanel";
 
 export type ChatMessage = {
@@ -11,7 +11,7 @@ export type ChatMessage = {
 type Props = {
   connected: boolean;
   messages: WSMessage[];
-  onSend: (msg: WSMessage) => void;
+  onSend: (msg: WSSendable) => void;
   selectedElement: ElementContext | null;
   onClearElement: () => void;
   injectedMessages?: ChatMessage[];
@@ -69,7 +69,7 @@ export default function ChatPanel({
           setStreaming(true);
           setStatusText(null);
           setChat((prev) => {
-            const delta = String((msg as { delta?: string }).delta ?? "");
+            const delta = msg.delta;
             const last = prev[prev.length - 1];
             if (last?.role === "assistant") {
               const updated = [...prev];
@@ -102,12 +102,12 @@ export default function ChatPanel({
 
         case "deploy":
           setDeploying(false);
-          if ((msg as { success?: boolean }).success) {
+          if (msg.success) {
             setChat((prev) => [
               ...prev,
               {
                 role: "assistant",
-                content: `公開しました!\n${(msg as { url?: string }).url ?? ""}`,
+                content: `公開しました!\n${msg.url ?? ""}`,
               },
             ]);
           } else {
@@ -115,7 +115,7 @@ export default function ChatPanel({
               ...prev,
               {
                 role: "assistant",
-                content: `公開に失敗しました: ${(msg as { error?: string }).error ?? "不明なエラー"}`,
+                content: `公開に失敗しました: ${msg.error ?? "不明なエラー"}`,
               },
             ]);
           }
@@ -124,14 +124,14 @@ export default function ChatPanel({
         case "git":
           setChat((prev) => [
             ...prev,
-            { role: "status", content: (msg as { message?: string }).message ?? "" },
+            { role: "status", content: msg.message ?? "" },
           ]);
           setUndoing(false);
           break;
 
         case "history":
           setHistoryLoading(false);
-          setCommits((msg as { commits?: { hash: string; message: string; date: string }[] }).commits ?? []);
+          setCommits(msg.commits ?? []);
           break;
 
         case "error":

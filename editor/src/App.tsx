@@ -82,7 +82,7 @@ export default function App() {
       const label = context.componentTree[0]?.name ?? context.tag;
       injectMessage("user", `[${label}] 画像を差し替え: ${fileName}`);
 
-      // Base64 → Blob → File
+      // data: URL を fetch すると Blob として読める (Base64 デコード代わり)
       try {
         const res = await fetch(fileData);
         const blob = await res.blob();
