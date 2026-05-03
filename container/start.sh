@@ -64,14 +64,45 @@ if [ ! -d "$WORKSPACE_DIR/.git" ]; then
     commit -m "Initial scaffold"
 fi
 
-# scaffold の package-lock.json が変わっていたら node_modules を再同期
+# node_modules は scaffold image のものをシンボリックリンクで参照する。
+# ・Volume を汚さない (所有権問題が原理的に発生しない)
+# ・起動が高速 (cp -r 数十秒 → リンク作成だけ)
+# ・vite の .vite/deps/ キャッシュは image overlay に書かれ、毎 deploy で fresh になる
 SCAFFOLD_LOCK="/app/container/scaffold/package-lock.json"
 WORKSPACE_LOCK="$WORKSPACE_DIR/package-lock.json"
-if ! diff -q "$SCAFFOLD_LOCK" "$WORKSPACE_LOCK" > /dev/null 2>&1 || [ ! -f "$WORKSPACE_DIR/node_modules/.bin/vite" ]; then
-  echo "Syncing node_modules from scaffold image..."
-  rm -rf "$WORKSPACE_DIR/node_modules"
-  cp -r /app/container/scaffold/node_modules "$WORKSPACE_DIR/"
-  cp "$SCAFFOLD_LOCK" "$WORKSPACE_LOCK"
+SCAFFOLD_NODE_MODULES="/app/container/scaffold/node_modules"
+
+# 旧版互換 (実ディレクトリ → シンボリックリンクへの一回限りの移行)
+if [ -d "$WORKSPACE_DIR/node_modules" ] && [ ! -L "$WORKSPACE_DIR/node_modules" ]; then
+  echo "Migrating node_modules from real dir to symlink..."
+  if ! rm -rf "$WORKSPACE_DIR/node_modules" 2>/dev/null; then
+    echo "ERROR: cannot remove $WORKSPACE_DIR/node_modules (Permission denied)."
+    echo "       Likely root-owned files from a prior deploy. Recovery procedure:"
+    echo "         flyctl deploy --build-arg RUN_AS_USER=root -a ai-web-builder"
+    echo "       Wait for 'Recovery chown complete' in logs, then deploy again without --build-arg."
+    exit 1
+  fi
+fi
+
+# シンボリックリンク作成 (idempotent)
+if [ ! -L "$WORKSPACE_DIR/node_modules" ]; then
+  ln -sfn "$SCAFFOLD_NODE_MODULES" "$WORKSPACE_DIR/node_modules"
+  echo "Linked node_modules → $SCAFFOLD_NODE_MODULES"
+fi
+
+# workspace の package-lock を scaffold と揃える (情報目的のみ — 解決はリンク経由)。
+# 既存ファイルが root 所有だと書き換え失敗するが致命的ではないので fail-soft。
+cp "$SCAFFOLD_LOCK" "$WORKSPACE_LOCK" 2>/dev/null || true
+
+# fail-fast チェック (A): workspace 内に UID 1001 以外の所有ファイルがあれば早期失敗
+# restart loop でログを汚す前にリカバリ手順を一度だけ示す。
+NON_APP_FILE=$(find "$WORKSPACE_DIR" -not -uid 1001 -print -quit 2>/dev/null || true)
+if [ -n "$NON_APP_FILE" ]; then
+  echo "ERROR: $WORKSPACE_DIR contains non-app-owned files (e.g. $NON_APP_FILE)."
+  echo "       Recovery procedure:"
+  echo "         flyctl deploy --build-arg RUN_AS_USER=root -a ai-web-builder"
+  echo "       Wait for 'Recovery chown complete' in logs, then deploy again without --build-arg."
+  exit 1
 fi
 
 # root 起動時 (Volume 所有権リカバリモード) は同期後も WORKSPACE_DIR の所有権を
@@ -105,8 +136,9 @@ node /app/container/opencode-postprocess.mjs \
   "--site-brief=${WORKSPACE_DIR}/SITE_BRIEF.md" \
   "--nano-banana-key=${GEMINI_API_KEY:-}"
 
-# Vite のキャッシュクリア（NODE_ENV 変更時に必要）
-rm -rf "$WORKSPACE_DIR/node_modules/.vite"
+# Vite のキャッシュクリア（NODE_ENV 変更時に必要）。symlink 経由なので
+# 実体は /app/container/scaffold/node_modules/.vite (image overlay 内)。
+rm -rf "$WORKSPACE_DIR/node_modules/.vite" 2>/dev/null || true
 
 # Vite Dev Server (ゲストサイト) — development モードで起動、base=/preview/
 # stdout/stderr を Fly stdout と $LOGS_DIR/vite.log の両方に流す

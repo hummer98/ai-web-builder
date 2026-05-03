@@ -56,3 +56,27 @@ jobs:
         run: flyctl deploy --remote-only --config fly.toml --app ai-web-builder
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Post-deploy smoke test
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # /health は agent-server が応答するエンドポイント (auth 不要)。
+          # 5 秒間隔で最大 24 回 (= 2 分) リトライ。auto_stop_machines = "stop" で
+          # Machine が停止していれば自動起動が走るため、最初の数回はタイムアウト前提。
+          set +e
+          for i in $(seq 1 24); do
+            code=$(curl -sS -o /tmp/body -w "%{http_code}" -m 10 \
+              https://ai-web-builder.fly.dev/health || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "Health check OK after ${i} attempts"
+              cat /tmp/body || true
+              exit 0
+            fi
+            echo "[$i/24] HTTP $code, retrying in 5s..."
+            sleep 5
+          done
+          echo "ERROR: Health check failed after 2 minutes."
+          echo "Last machine logs:"
+          flyctl logs --no-tail --app ai-web-builder | tail -80 || true
+          exit 1
