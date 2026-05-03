@@ -23,6 +23,8 @@ jobs:
             package-lock.json
             container/agent-server/package-lock.json
             container/log-reader-mcp/package-lock.json
+            container/scaffold/package-lock.json
+            editor/package-lock.json
 
       - name: Install root deps
         run: npm ci
@@ -32,6 +34,12 @@ jobs:
 
       - name: Install container/log-reader-mcp deps
         run: npm ci --prefix container/log-reader-mcp
+
+      - name: Install container/scaffold deps
+        run: npm ci --prefix container/scaffold
+
+      - name: Install editor deps
+        run: npm ci --prefix editor
 
       - name: Run tests
         run: npm test
