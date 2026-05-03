@@ -1,8 +1,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { getCookie } from "hono/cookie";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "./logger.js";
@@ -182,10 +181,10 @@ export function createApp(opts: CreateAppOpts = {}) {
       }
       const filename = `${randomUUID()}${ext}`;
       const uploadsDir = join(WORKSPACE_DIR, "public", "uploads");
-      mkdirSync(uploadsDir, { recursive: true });
+      await mkdir(uploadsDir, { recursive: true });
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      writeFileSync(join(uploadsDir, filename), buffer);
+      await writeFile(join(uploadsDir, filename), buffer);
 
       log.info("File uploaded", { filename, size: file.size });
       return c.json({ url: `/uploads/${filename}` });
@@ -260,32 +259,21 @@ export function createApp(opts: CreateAppOpts = {}) {
   // エディター UI の静的ファイル配信（本番時: ビルド済み dist/）
   // /ws, /api, /preview, /health は除外（他のルートが処理する）
   if (process.env.NODE_ENV === "production") {
+    const isReservedPath = (path: string): boolean =>
+      path === "/ws" ||
+      path === "/health" ||
+      path.startsWith("/api") ||
+      path.startsWith("/preview") ||
+      path.startsWith("/uploads");
+
     app.use("/*", async (c, next) => {
-      const path = c.req.path;
-      if (
-        path === "/ws" ||
-        path.startsWith("/api") ||
-        path.startsWith("/preview") ||
-        path.startsWith("/uploads") ||
-        path === "/health"
-      ) {
-        return next();
-      }
+      if (isReservedPath(c.req.path)) return next();
       const mw = serveStatic({ root: "../../editor/dist" });
       return mw(c, next);
     });
     // SPA フォールバック（同じ除外条件）
     app.get("/*", async (c, next) => {
-      const path = c.req.path;
-      if (
-        path === "/ws" ||
-        path.startsWith("/api") ||
-        path.startsWith("/preview") ||
-        path.startsWith("/uploads") ||
-        path === "/health"
-      ) {
-        return next();
-      }
+      if (isReservedPath(c.req.path)) return next();
       const mw = serveStatic({ root: "../../editor/dist", path: "index.html" });
       return mw(c, next);
     });

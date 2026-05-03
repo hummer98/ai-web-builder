@@ -437,5 +437,4 @@ function clearSemanticLabels() {
 }
 
 // 初期状態: インスペクトモードOFF
-console.log('[editor-overlay] loaded');
 `;

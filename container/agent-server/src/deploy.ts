@@ -75,30 +75,3 @@ export async function deploy(siteName: string): Promise<DeployResult> {
   }
 }
 
-/**
- * R2 にアセットをアップロード
- */
-export async function uploadAsset(
-  bucketName: string,
-  key: string,
-  filePath: string
-): Promise<string | null> {
-  try {
-    run("npx", [
-      "wrangler",
-      "r2",
-      "object",
-      "put",
-      `${bucketName}/${key}`,
-      "--file",
-      filePath,
-    ]);
-
-    const url = `https://${bucketName}.${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${key}`;
-    log.info("Asset uploaded to R2", { key, url });
-    return url;
-  } catch (err) {
-    log.error("R2 upload failed", { key, error: sanitizeError(err) });
-    return null;
-  }
-}

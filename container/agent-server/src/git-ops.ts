@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { getInstallationToken, getOctokit, isGitHubAppConfigured } from "./github-app.js";
+import { getInstallationToken, isGitHubAppConfigured } from "./github-app.js";
 import { createLogger } from "./logger.js";
 import { sanitizeError } from "./utils.js";
 
@@ -156,32 +156,3 @@ export function revertToCommit(hash: string): string | null {
   }
 }
 
-/**
- * Issue を作成（変更履歴の記録用）
- */
-export async function createIssue(
-  owner: string,
-  repo: string,
-  title: string,
-  body: string
-): Promise<number | null> {
-  if (!isGitHubAppConfigured()) {
-    log.warn("GitHub App not configured, skipping issue creation");
-    return null;
-  }
-
-  try {
-    const octokit = await getOctokit();
-    const { data } = await octokit.issues.create({
-      owner,
-      repo,
-      title,
-      body,
-    });
-    log.info("Issue created", { number: data.number, title });
-    return data.number;
-  } catch (err) {
-    log.error("Issue creation failed", { error: sanitizeError(err) });
-    return null;
-  }
-}
