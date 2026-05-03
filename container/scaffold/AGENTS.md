@@ -33,7 +33,7 @@
 2. src/components/Layout.tsx にヘッダー・ナビゲーション・フッターを実装
 3. 各セクションコンポーネントを最小限で作成（見出し + 1行の説明文のみ）
    - HeroSection.tsx — メインビジュアル + キャッチコピー
-   - 業種に合ったセクション（メニュー、サービス、料金表等）
+   - 業種に合ったセクション（下の「業種別ヒント」を参照）
    - AccessSection.tsx — 住所・営業時間
    - ContactSection.tsx — お問い合わせフォーム
 4. src/pages/Home.tsx に全コンポーネントを配置
@@ -42,6 +42,22 @@
 ### Phase 2: コンテンツ充填
 6. 各セクションに本格的なコンテンツを追加（メニュー項目、住所、フォーム等）
 7. ファイルを1つ保存するたびにプレビューが更新される
+
+## 業種別ヒント
+
+ユーザーがどの業種を頼んでも、以下を**たたき台として**使う。表に無い業種は最も近いものから派生させる。
+
+| 業種 | 必須セクション | 配色の方向性 | Hero 画像プロンプト例 |
+|------|---------|------|---------|
+| カフェ・飲食店 | Hero / Menu / Access / Contact | 暖色（ベージュ・茶・ダーク赤） | `cozy cafe interior, warm lighting, wooden tables, photorealistic` |
+| 美容室・サロン | Hero / Menu(料金) / Stylists / Booking / Access | 淡色（白・ピンク・ベージュ） | `bright modern hair salon, large mirrors, plants, photorealistic` |
+| ピアノ教室・塾 | Hero / Course / Teacher / Trial(体験申込) / Access | 落ち着いた色（白・ネイビー・ゴールド） | `clean piano practice room, sheet music, warm light, photorealistic` |
+| 写真スタジオ | Hero / Gallery(複数画像) / Service / Pricing / Booking | モノトーン or アースカラー | （ユーザー画像を主役にする。生成は最小限） |
+| 士業・コンサル | Hero / Service / Profile / News / Contact | 信頼感ある色（白・紺・グレー） | `professional office, minimalist, soft natural light, photorealistic` |
+| 個人ポートフォリオ | Hero / Works / About / Contact | 個性に合わせる | （作品画像はユーザー任せ。Hero の抽象画像のみ生成） |
+| イベント告知1ページ | Hero / Date&Place / Schedule / Speakers / Contact | テーマ色を強調 | テーマに合わせる |
+
+**配色は LLM の自動選定に任せず、上記から選んで `index.css` の CSS 変数として定義する。** 同じ業種で何度生成しても似た色味にならないよう、ユーザーの言葉（「明るい」「落ち着いた」「ナチュラル」等）を優先する。画像生成のルール（保存先・上限）は共通インストラクション側を参照。
 
 ## フォーム送信
 

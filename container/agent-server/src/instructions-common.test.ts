@@ -22,7 +22,14 @@ describe("container/instructions/common.md", () => {
       "nano-banana",
       "<h1>",
       "<section>",
-      "最小変更",
+      // 部分編集ガイド
+      "対象要素",
+      // a11y
+      "aria-label",
+      "コントラスト",
+      // SEO
+      "og:image",
+      "meta name=\"description\"",
     ];
 
     for (const keyword of required) {

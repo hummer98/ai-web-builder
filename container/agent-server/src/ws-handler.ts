@@ -5,7 +5,7 @@ import type { Hono } from "hono";
 import { autoCommit, autoPush, getHistory, revertToCommit } from "./git-ops.js";
 import { createNewSite, importExistingRepo, resetWorkspace } from "./site-init.js";
 import { createLogger } from "./logger.js";
-import { detectCommand, HELP_TEXT, sanitizeError } from "./utils.js";
+import { detectCommand, HELP_TEXT, sanitizeError, truncateForCommit } from "./utils.js";
 import type { Command } from "./utils.js";
 import { handleChatMessage, runInactivityTimeout } from "./chat-handler.js";
 import { createInactivityTimer, type InactivityTimer } from "./timeout.js";
@@ -16,6 +16,7 @@ import {
   type WsInboundMessage,
 } from "./ws-schema.js";
 import { executeUndo, executeDeploy } from "./ws-actions.js";
+import { verifyServers } from "./verify.js";
 
 const log = createLogger("agent-server");
 
@@ -41,6 +42,8 @@ export function registerWsHandler(
       let sessionId: string | undefined;
       let eventIterator: AsyncGenerator | undefined;
       let inactivityTimer: InactivityTimer | undefined;
+      // session.idle 時の commit メッセージに使うため、直近のユーザー入力を保持
+      let lastUserMessage: string | undefined;
 
       const handleEvent = (
         event: Event,
@@ -81,13 +84,43 @@ export function registerWsHandler(
               ws.send(JSON.stringify({ type: "stream-end" }));
               log.info("OpenCode response completed (stream)", { sessionId });
 
+              const messageForCommit = lastUserMessage;
+              lastUserMessage = undefined;
+
               (async () => {
                 try {
-                  const hash = autoCommit("AI edit");
+                  // commit gate: Vite/Hono が応答しなければ commit を保留する。
+                  // 自己修復ループが失敗した状態 (白画面・ビルドエラー等) のまま
+                  // 履歴に残るのを防ぐ目的。
+                  const verify = await verifyServers();
+                  if (!verify.ok) {
+                    log.warn("Skipping commit: dev servers unhealthy", {
+                      reasons: verify.reasons,
+                    });
+                    ws.send(
+                      JSON.stringify({
+                        type: "warning",
+                        message:
+                          "編集後にプレビューが応答していません。表示が崩れている可能性があります。元に戻すか、もう一度指示してください。",
+                        reasons: verify.reasons,
+                      })
+                    );
+                    return;
+                  }
+
+                  const commitMessage = messageForCommit
+                    ? truncateForCommit(messageForCommit)
+                    : "AI edit";
+                  const hash = autoCommit(commitMessage);
                   if (hash) {
                     await autoPush();
                     ws.send(
-                      JSON.stringify({ type: "git", action: "commit", hash })
+                      JSON.stringify({
+                        type: "git",
+                        action: "commit",
+                        hash,
+                        message: commitMessage,
+                      })
                     );
                   }
                 } catch (err) {
@@ -242,6 +275,7 @@ export function registerWsHandler(
       ): Promise<void> => {
         switch (msg.type) {
           case "chat": {
+            lastUserMessage = msg.message;
             if (!msg.elementContext?.ocId) {
               const cmd = detectCommand(msg.message);
               if (cmd) {
