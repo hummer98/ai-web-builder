@@ -3,6 +3,8 @@ import ChatPanel from "./components/ChatPanel";
 import type { ChatMessage } from "./components/ChatPanel";
 import PreviewPanel from "./components/PreviewPanel";
 import type { ElementContext } from "./components/PreviewPanel";
+import SiteBriefModal from "./components/SiteBriefModal";
+import SiteBriefMiniModal from "./components/SiteBriefMiniModal";
 import { useWebSocket } from "./hooks/useWebSocket";
 
 const WS_URL = import.meta.env.DEV
@@ -19,6 +21,14 @@ export default function App() {
   const [inspectRequested, setInspectRequested] = useState(0);
   const [previewRefreshKey, setPreviewRefreshKey] = useState(0);
   const prevMessagesLen = useRef(0);
+
+  // SITE_BRIEF state
+  const [siteBriefMarkdown, setSiteBriefMarkdown] = useState<string>("");
+  const [siteBriefIsEmpty, setSiteBriefIsEmpty] = useState<boolean>(true);
+  const [siteBriefModalOpen, setSiteBriefModalOpen] = useState(false);
+  const [siteBriefMiniOpen, setSiteBriefMiniOpen] = useState(false);
+  const [siteBriefSaving, setSiteBriefSaving] = useState(false);
+  const siteBriefRequestedRef = useRef(false);
 
   // ? キーでヘルプを開く、Escape で閉じる
   useEffect(() => {
@@ -42,7 +52,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // AI 応答完了時にプレビューを自動 reload
+  // AI 応答完了時にプレビューを自動 reload + site-brief / site-init を反映
   useEffect(() => {
     if (messages.length > prevMessagesLen.current) {
       const newMessages = messages.slice(prevMessagesLen.current);
@@ -52,9 +62,42 @@ export default function App() {
       if (shouldReload) {
         setPreviewRefreshKey((n) => n + 1);
       }
+
+      for (const m of newMessages) {
+        if (m.type === "site-brief") {
+          setSiteBriefMarkdown(m.content);
+          setSiteBriefIsEmpty(m.isEmpty);
+        } else if (m.type === "site-brief-saved") {
+          setSiteBriefSaving(false);
+          setSiteBriefModalOpen(false);
+          setSiteBriefMiniOpen(false);
+        } else if (m.type === "site-init" && m.action === "created") {
+          // 新規サイト作成完了時、SITE_BRIEF が空ならミニモーダルで誘導
+          if (siteBriefIsEmpty) setSiteBriefMiniOpen(true);
+        } else if (m.type === "error" && siteBriefSaving) {
+          setSiteBriefSaving(false);
+        }
+      }
     }
     prevMessagesLen.current = messages.length;
-  }, [messages]);
+  }, [messages, siteBriefIsEmpty, siteBriefSaving]);
+
+  // 接続成立後に SITE_BRIEF を 1 度だけ取得
+  useEffect(() => {
+    if (connected && !siteBriefRequestedRef.current) {
+      siteBriefRequestedRef.current = true;
+      send({ type: "site-brief-get" });
+    }
+  }, [connected, send]);
+
+  const handleSiteBriefSave = useCallback(
+    (markdown: string) => {
+      setSiteBriefSaving(true);
+      setSiteBriefMarkdown(markdown);
+      send({ type: "site-brief-set", content: markdown });
+    },
+    [send],
+  );
 
   const injectMessage = useCallback((role: ChatMessage["role"], content: string) => {
     setInjectedMessages((prev) => [...prev, { role, content }]);
@@ -141,6 +184,7 @@ export default function App() {
           onClearElement={() => setSelectedElement(null)}
           injectedMessages={injectedMessages}
           onHelp={() => setHelpOpen(true)}
+          onOpenSiteBrief={() => setSiteBriefModalOpen(true)}
         />
       </div>
 
@@ -155,6 +199,28 @@ export default function App() {
           refreshKey={previewRefreshKey}
         />
       </div>
+
+      {/* サイト情報 モーダル (5 項目) */}
+      <SiteBriefModal
+        open={siteBriefModalOpen}
+        initialMarkdown={siteBriefMarkdown}
+        saving={siteBriefSaving}
+        onClose={() => setSiteBriefModalOpen(false)}
+        onSave={handleSiteBriefSave}
+      />
+
+      {/* サイト情報 ミニモーダル (1 行ヒアリング) */}
+      <SiteBriefMiniModal
+        open={siteBriefMiniOpen}
+        initialMarkdown={siteBriefMarkdown}
+        saving={siteBriefSaving}
+        onSkip={() => setSiteBriefMiniOpen(false)}
+        onSave={handleSiteBriefSave}
+        onOpenFull={() => {
+          setSiteBriefMiniOpen(false);
+          setSiteBriefModalOpen(true);
+        }}
+      />
 
       {/* ヘルプモーダル */}
       {helpOpen && (

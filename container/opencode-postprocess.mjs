@@ -4,7 +4,8 @@ import { readFileSync, writeFileSync } from "node:fs";
  * ワークスペースにコピーされた opencode.json を後処理する。
  *
  * - `instructions` に共通 md の絶対パスを injection する（idempotent）
- * - scaffold 由来の相対パスエントリ（common.md を指すもの）は除去する
+ * - `instructions` に SITE_BRIEF.md の絶対パスを injection する（idempotent、任意）
+ * - scaffold 由来の相対パスエントリ（common.md / SITE_BRIEF.md を指すもの）は除去する
  * - `mcp['nano-banana'].environment.GEMINI_API_KEY` を実値に置換する
  *
  * start.sh（本番コンテナ）と site-init.ts（ローカル開発）の両方から呼ばれる。
@@ -13,7 +14,7 @@ export function postprocessOpencodeJson(jsonPath, options) {
   if (!options || typeof options.commonMdAbsPath !== "string" || !options.commonMdAbsPath) {
     throw new Error("commonMdAbsPath is required");
   }
-  const { commonMdAbsPath, nanoBananaApiKey } = options;
+  const { commonMdAbsPath, nanoBananaApiKey, siteBriefAbsPath } = options;
 
   const raw = readFileSync(jsonPath, "utf-8");
   const data = JSON.parse(raw);
@@ -28,11 +29,21 @@ export function postprocessOpencodeJson(jsonPath, options) {
   data.instructions = data.instructions.filter((p) => {
     if (typeof p !== "string") return false;
     if (p === commonMdAbsPath) return true;
-    return !p.endsWith("/container/instructions/common.md");
+    if (typeof siteBriefAbsPath === "string" && p === siteBriefAbsPath) return true;
+    if (p.endsWith("/container/instructions/common.md")) return false;
+    if (p.endsWith("/SITE_BRIEF.md") || p === "./SITE_BRIEF.md") return false;
+    return true;
   });
 
   if (!data.instructions.includes(commonMdAbsPath)) {
     data.instructions.push(commonMdAbsPath);
+  }
+  if (
+    typeof siteBriefAbsPath === "string" &&
+    siteBriefAbsPath.length > 0 &&
+    !data.instructions.includes(siteBriefAbsPath)
+  ) {
+    data.instructions.push(siteBriefAbsPath);
   }
 
   if (
@@ -65,6 +76,8 @@ function parseArgs(argv) {
       opts.commonMdAbsPath = arg.slice("--common=".length);
     } else if (arg.startsWith("--nano-banana-key=")) {
       opts.nanoBananaApiKey = arg.slice("--nano-banana-key=".length);
+    } else if (arg.startsWith("--site-brief=")) {
+      opts.siteBriefAbsPath = arg.slice("--site-brief=".length);
     }
   }
   return { jsonPath, opts };

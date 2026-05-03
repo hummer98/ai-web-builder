@@ -81,10 +81,16 @@ cp -r /app/container/scaffold/plugins/. "$WORKSPACE_DIR/plugins/"
 cp /app/container/scaffold/opencode.json "$WORKSPACE_DIR/opencode.json"
 cp /app/container/scaffold/AGENTS.md "$WORKSPACE_DIR/AGENTS.md"
 
-# opencode.json の後処理: 共通 instructions の絶対パス注入 + nano-banana 環境変数
+# SITE_BRIEF.md は scaffold のテンプレを初回のみコピー（既存ユーザー編集を上書きしない）
+if [ ! -f "$WORKSPACE_DIR/SITE_BRIEF.md" ]; then
+  cp /app/container/scaffold/SITE_BRIEF.md "$WORKSPACE_DIR/SITE_BRIEF.md"
+fi
+
+# opencode.json の後処理: 共通 instructions / SITE_BRIEF の絶対パス注入 + nano-banana 環境変数
 node /app/container/opencode-postprocess.mjs \
   "$WORKSPACE_DIR/opencode.json" \
   "--common=/app/container/instructions/common.md" \
+  "--site-brief=${WORKSPACE_DIR}/SITE_BRIEF.md" \
   "--nano-banana-key=${GEMINI_API_KEY:-}"
 
 # Vite のキャッシュクリア（NODE_ENV 変更時に必要）

@@ -211,6 +211,48 @@ describe("postprocessOpencodeJson", () => {
     expect(d.mcp["nano-banana"]).toBeUndefined();
   });
 
+  it("siteBriefAbsPath を渡すと instructions に追加される", () => {
+    writeFileSync(jsonPath, JSON.stringify({ instructions: [] }, null, 2));
+    mod.postprocessOpencodeJson(jsonPath, {
+      commonMdAbsPath: "/app/container/instructions/common.md",
+      siteBriefAbsPath: "/data/workspace/SITE_BRIEF.md",
+    });
+    const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    expect(d.instructions).toEqual([
+      "/app/container/instructions/common.md",
+      "/data/workspace/SITE_BRIEF.md",
+    ]);
+  });
+
+  it("scaffold 由来の SITE_BRIEF.md 相対パスを除去してから絶対パスを push する", () => {
+    writeFileSync(
+      jsonPath,
+      JSON.stringify(
+        {
+          instructions: ["./SITE_BRIEF.md"],
+        },
+        null,
+        2
+      )
+    );
+    mod.postprocessOpencodeJson(jsonPath, {
+      commonMdAbsPath: "/app/container/instructions/common.md",
+      siteBriefAbsPath: "/data/workspace/SITE_BRIEF.md",
+    });
+    const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    expect(d.instructions).not.toContain("./SITE_BRIEF.md");
+    expect(d.instructions).toContain("/data/workspace/SITE_BRIEF.md");
+  });
+
+  it("siteBriefAbsPath 未指定なら instructions に追加されない (idempotent)", () => {
+    writeFileSync(jsonPath, JSON.stringify({ instructions: [] }, null, 2));
+    mod.postprocessOpencodeJson(jsonPath, {
+      commonMdAbsPath: "/app/container/instructions/common.md",
+    });
+    const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+    expect(d.instructions).toEqual(["/app/container/instructions/common.md"]);
+  });
+
   it("commonMdAbsPath 未指定時はエラーを投げる", () => {
     writeFileSync(jsonPath, JSON.stringify({}, null, 2));
     expect(() =>

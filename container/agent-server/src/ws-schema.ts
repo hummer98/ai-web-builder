@@ -59,6 +59,16 @@ export const ImportRepoMsg = z.object({
   repoName: repoIdent,
 });
 
+export const SiteBriefGetMsg = z.object({
+  type: z.literal("site-brief-get"),
+});
+
+export const SiteBriefSetMsg = z.object({
+  type: z.literal("site-brief-set"),
+  // SITE_BRIEF.md の本文。Markdown blob。
+  content: z.string().max(20000),
+});
+
 // discriminatedUnion 配下の z.object はデフォルトの .strip() でよい。
 // 不正フィールドはスキーマ通過時に剥がされ、ハンドラには到達しないので無害。
 export const WsInbound = z.discriminatedUnion("type", [
@@ -69,6 +79,8 @@ export const WsInbound = z.discriminatedUnion("type", [
   DeployMsg,
   CreateSiteMsg,
   ImportRepoMsg,
+  SiteBriefGetMsg,
+  SiteBriefSetMsg,
 ]);
 
 export type WsInboundMessage = z.infer<typeof WsInbound>;

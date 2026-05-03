@@ -16,12 +16,14 @@ const COMMON_MD_ABS_PATH = join(CONTAINER_DIR, "instructions", "common.md");
 /**
  * scaffold をコピーしたワークスペース内の opencode.json に対して、
  * - 共通 instructions (common.md) の絶対パス注入
+ * - SITE_BRIEF.md (workspace 直下) の絶対パス注入
  * - nano-banana MCP への GEMINI_API_KEY 注入
  * を行う。start.sh (本番) と対称になるローカル開発側の経路。
  */
 export function postprocessWorkspaceOpencodeJson(workspacePath: string): void {
   postprocessOpencodeJson(join(workspacePath, "opencode.json"), {
     commonMdAbsPath: COMMON_MD_ABS_PATH,
+    siteBriefAbsPath: resolve(workspacePath, "SITE_BRIEF.md"),
     nanoBananaApiKey: process.env.GEMINI_API_KEY,
   });
 }
@@ -190,7 +192,7 @@ export async function resetWorkspace(): Promise<{ success: boolean; error?: stri
     if (existsSync(indexHtml)) rmSync(indexHtml);
 
     // scaffold からコピー
-    for (const item of ["src", "functions", "public", "index.html", "package.json", "opencode.json", "AGENTS.md"]) {
+    for (const item of ["src", "functions", "public", "index.html", "package.json", "opencode.json", "AGENTS.md", "SITE_BRIEF.md"]) {
       const src = join(scaffoldDir, item);
       const dest = join(workspaceDir, item);
       if (existsSync(src)) {

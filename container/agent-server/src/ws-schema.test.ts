@@ -146,6 +146,39 @@ describe("parseWsMessage", () => {
     });
   });
 
+  describe("site-brief", () => {
+    it("accepts site-brief-get", () => {
+      const r = parseWsMessage({ type: "site-brief-get" });
+      expect(r.ok).toBe(true);
+    });
+
+    it("accepts site-brief-set with content", () => {
+      const r = parseWsMessage({
+        type: "site-brief-set",
+        content: "# サイトの設計図\n\n## 何のサイト\nカフェ\n",
+      });
+      expect(r.ok).toBe(true);
+    });
+
+    it("accepts empty content (clear case)", () => {
+      const r = parseWsMessage({ type: "site-brief-set", content: "" });
+      expect(r.ok).toBe(true);
+    });
+
+    it("rejects content over 20000 chars", () => {
+      const r = parseWsMessage({
+        type: "site-brief-set",
+        content: "a".repeat(20001),
+      });
+      expect(r.ok).toBe(false);
+    });
+
+    it("rejects non-string content", () => {
+      const r = parseWsMessage({ type: "site-brief-set", content: 123 });
+      expect(r.ok).toBe(false);
+    });
+  });
+
   describe("undo / deploy", () => {
     it("accepts undo", () => {
       const r = parseWsMessage({ type: "undo" });

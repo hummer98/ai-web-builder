@@ -32,7 +32,9 @@ export type WSSendable =
   | { type: "revert"; hash: string }
   | { type: "deploy" }
   | { type: "create-site"; siteName: string }
-  | { type: "import-repo"; repoName: string };
+  | { type: "import-repo"; repoName: string }
+  | { type: "site-brief-get" }
+  | { type: "site-brief-set"; content: string };
 
 export function useWebSocket(url: string) {
   const wsRef = useRef<WebSocket | null>(null);

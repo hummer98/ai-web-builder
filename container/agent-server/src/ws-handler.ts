@@ -17,6 +17,12 @@ import {
 } from "./ws-schema.js";
 import { executeUndo, executeDeploy } from "./ws-actions.js";
 import { verifyServers } from "./verify.js";
+import {
+  commitSiteBrief,
+  isSiteBriefEmpty,
+  readSiteBrief,
+  writeSiteBrief,
+} from "./site-brief.js";
 
 const log = createLogger("agent-server");
 
@@ -394,6 +400,57 @@ export function registerWsHandler(
             } catch (err) {
               log.error("Create site failed", { error: sanitizeError(err) });
               ws.send(JSON.stringify({ type: "error", message: sanitizeError(err) }));
+            }
+            return;
+          }
+
+          case "site-brief-get": {
+            try {
+              const content = readSiteBrief(deps.workspaceDir);
+              ws.send(
+                JSON.stringify({
+                  type: "site-brief",
+                  content,
+                  isEmpty: isSiteBriefEmpty(content),
+                })
+              );
+            } catch (err) {
+              log.error("site-brief-get failed", { error: sanitizeError(err) });
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "サイト情報の読み込みに失敗しました",
+                })
+              );
+            }
+            return;
+          }
+
+          case "site-brief-set": {
+            try {
+              writeSiteBrief(msg.content, deps.workspaceDir);
+              const hash = commitSiteBrief("サイト情報を更新", deps.workspaceDir);
+              if (hash) {
+                autoPush().catch((err) =>
+                  log.error("Push after site-brief-set failed", {
+                    error: sanitizeError(err),
+                  })
+                );
+              }
+              ws.send(
+                JSON.stringify({
+                  type: "site-brief-saved",
+                  hash: hash ?? undefined,
+                })
+              );
+            } catch (err) {
+              log.error("site-brief-set failed", { error: sanitizeError(err) });
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "サイト情報の保存に失敗しました",
+                })
+              );
             }
             return;
           }

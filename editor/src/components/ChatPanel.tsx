@@ -16,6 +16,7 @@ type Props = {
   onClearElement: () => void;
   injectedMessages?: ChatMessage[];
   onHelp: () => void;
+  onOpenSiteBrief: () => void;
 };
 
 export default function ChatPanel({
@@ -26,6 +27,7 @@ export default function ChatPanel({
   onClearElement,
   injectedMessages,
   onHelp,
+  onOpenSiteBrief,
 }: Props) {
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
@@ -332,6 +334,14 @@ export default function ChatPanel({
           className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
         />
         <span className="text-sm font-medium flex-1">AI Web Builder</span>
+        <button
+          onClick={onOpenSiteBrief}
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
+          title="サイト情報を編集"
+        >
+          <span>📝</span>
+          サイト情報
+        </button>
         <button
           onClick={onHelp}
           className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
