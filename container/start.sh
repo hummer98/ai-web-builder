@@ -77,7 +77,13 @@ fi
 # root 起動時 (Volume 所有権リカバリモード) は同期後も WORKSPACE_DIR の所有権を
 # 1001:1001 に統一しておく。次回 USER app 起動で rm -rf が失敗しないよう保険。
 if [ "$(id -u)" -eq 0 ] && [ -d "$WORKSPACE_DIR" ]; then
+  echo "Recovery mode: chowning $WORKSPACE_DIR to 1001:1001..."
   chown -R 1001:1001 "$WORKSPACE_DIR"
+  echo "Recovery chown complete. Holding machine with minimal HTTP server (deploy without --build-arg to revert)."
+  # vite/hono/opencode を root で起動すると .vite/deps/ 等を root 所有で書き戻して
+  # しまうため、リカバリモードでは何も起動しない。Fly のヘルスチェック用に :8080
+  # で 200 を返す最小サーバーだけ立てておく (このプロセスは何も書き込まない)。
+  exec node -e 'require("http").createServer((_,r)=>{r.statusCode=200;r.end("recovery")}).listen(8080,"0.0.0.0",()=>console.log("recovery http on :8080"))'
 fi
 
 # scaffold の設定ファイルを常に最新に同期（ユーザーコンテンツ以外）
