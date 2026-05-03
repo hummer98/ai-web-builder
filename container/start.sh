@@ -74,6 +74,12 @@ if ! diff -q "$SCAFFOLD_LOCK" "$WORKSPACE_LOCK" > /dev/null 2>&1 || [ ! -f "$WOR
   cp "$SCAFFOLD_LOCK" "$WORKSPACE_LOCK"
 fi
 
+# root 起動時 (Volume 所有権リカバリモード) は同期後も WORKSPACE_DIR の所有権を
+# 1001:1001 に統一しておく。次回 USER app 起動で rm -rf が失敗しないよう保険。
+if [ "$(id -u)" -eq 0 ] && [ -d "$WORKSPACE_DIR" ]; then
+  chown -R 1001:1001 "$WORKSPACE_DIR"
+fi
+
 # scaffold の設定ファイルを常に最新に同期（ユーザーコンテンツ以外）
 cp /app/container/scaffold/vite.config.ts "$WORKSPACE_DIR/vite.config.ts"
 cp /app/container/scaffold/tsconfig.json "$WORKSPACE_DIR/tsconfig.json"
