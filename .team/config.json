@@ -1,3 +1,6 @@
 {
-  "mainBranch": "main"
+  "mainBranch": "main",
+  "tokenPool": {
+    "enabled": true
+  }
 }
