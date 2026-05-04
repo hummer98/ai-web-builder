@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "./logger.js";
 import { sanitizeError } from "./utils.js";
@@ -88,10 +88,40 @@ async function deployCloudflare(siteName: string): Promise<DeployResult> {
   return { success: true, url: urlMatch?.[0] };
 }
 
+type FunctionsConfigEntry = { source?: string };
+
+/**
+ * firebase.json から functions の source 一覧を取り出す。
+ * array / object / 未定義 / 壊れた JSON を吸収し、同一 source は dedup する。
+ */
+export function readFunctionsSources(workspaceDir: string): string[] {
+  const path = join(workspaceDir, "firebase.json");
+  if (!existsSync(path)) return [];
+  let parsed: { functions?: FunctionsConfigEntry | FunctionsConfigEntry[] };
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf-8"));
+  } catch {
+    return [];
+  }
+  const fns = parsed.functions;
+  if (!fns) return [];
+  const list = Array.isArray(fns) ? fns : [fns];
+  return list
+    .map((e) => e.source ?? "functions")
+    .filter((s, i, arr) => arr.indexOf(s) === i);
+}
+
 async function deployFirebase(siteName: string): Promise<DeployResult> {
   log.info("Deploying to Firebase...", { siteName });
-  // hosting の predeploy が無くても dist が必要なので vite build は呼び出し側で済ませている
-  // functions の predeploy は firebase.json 側で npm run build を回す前提
+
+  // functions の依存を deploy 前に解決（firebase.json predeploy の tsc が node_modules 不在で失敗するのを防ぐ）
+  for (const src of readFunctionsSources(WORKSPACE_DIR)) {
+    const pkgJson = join(WORKSPACE_DIR, src, "package.json");
+    if (!existsSync(pkgJson)) continue;
+    log.info("Installing functions deps", { source: src });
+    run("npm", ["install", "--prefix", src]);
+  }
+
   const output = run("npx", [
     "firebase",
     "deploy",

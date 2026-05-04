@@ -7,6 +7,9 @@ export OPENROUTER_API_KEY=
 export CLOUDFLARE_API_TOKEN=
 export CLOUDFLARE_ACCOUNT_ID=
 
+# Firebase (デプロイ)
+export FIREBASE_TOKEN=
+
 # GitHub App
 export GITHUB_APP_ID=
 export GITHUB_APP_PRIVATE_KEY=

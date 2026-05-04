@@ -21,7 +21,7 @@
   .layer-fly { border-color: #8b5cf6; }
   .layer-fly .layer-label { color: #a78bfa; }
 
-  .layer-external { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .layer-external { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 
   /* Boxes */
   .box { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; }
@@ -276,6 +276,17 @@
           <li>Pages — 静的ファイル配信</li>
           <li>Workers — Hono API</li>
         </ul>
+        <div style="margin-top: 6px; font-size: 11px; color: #94a3b8;">workspace に <code>wrangler.toml</code> がある場合</div>
+      </div>
+    </div>
+    <div class="box box-yellow">
+      <div class="box-title">🔥 Firebase</div>
+      <div class="box-content">
+        <ul>
+          <li>Hosting — 静的ファイル配信</li>
+          <li>Cloud Functions — Hono API (asia-northeast1)</li>
+        </ul>
+        <div style="margin-top: 6px; font-size: 11px; color: #94a3b8;">workspace に <code>firebase.json</code> がある場合 (例: le-serpent.club)</div>
       </div>
     </div>
     <div class="box box-cyan">
@@ -292,7 +303,7 @@
 
   <!-- Deploy Configuration -->
   <div class="deploy-section">
-    <h2>デプロイ構成</h2>
+    <h2>デプロイ構成 (編集環境)</h2>
     <div class="deploy-grid">
       <div class="deploy-box">
         <div class="box-title" style="color: #4ade80; font-size: 13px;">🟢 ai-web-builder (本番)</div>
@@ -305,6 +316,28 @@
         <div class="url">ai-web-builder-demo.fly.dev</div>
         <div class="env">SITE_DOMAIN 未設定 → scaffold</div>
         <div class="box-content" style="margin-top: 6px;">Machine + Volume | 認証なし</div>
+      </div>
+    </div>
+
+    <h2 style="margin-top: 24px;">本番公開先 (ゲストサイトの設定で自動振り分け)</h2>
+    <div class="deploy-grid">
+      <div class="deploy-box">
+        <div class="box-title" style="color: #fb923c; font-size: 13px;">☁️ Cloudflare 経路</div>
+        <div class="env">workspace/wrangler.toml が存在する場合</div>
+        <div class="box-content" style="margin-top: 6px;">
+          <code>npx vite build</code><br>
+          <code>npx wrangler pages deploy dist</code><br>
+          <code>npx wrangler deploy functions/api/index.ts</code>
+        </div>
+      </div>
+      <div class="deploy-box">
+        <div class="box-title" style="color: #facc15; font-size: 13px;">🔥 Firebase 経路</div>
+        <div class="env">workspace/firebase.json が存在する場合 (例: le-serpent.club)</div>
+        <div class="box-content" style="margin-top: 6px;">
+          <code>npx vite build</code><br>
+          <code>npm install --prefix functions</code><br>
+          <code>npx firebase deploy --non-interactive</code>
+        </div>
       </div>
     </div>
   </div>

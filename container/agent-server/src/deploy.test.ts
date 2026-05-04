@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -143,5 +143,182 @@ describe("deploy", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("両方");
     expect(calls).toHaveLength(0);
+  });
+
+  it("firebase 経路: functions が array + package.json あり → npm install --prefix が混入する", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({
+        hosting: { public: "dist" },
+        functions: [{ source: "functions", codebase: "default" }],
+      }),
+    );
+    mkdirSync(join(tmp, "functions"));
+    writeFileSync(join(tmp, "functions/package.json"), "{}");
+    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("le-serpent");
+
+    expect(result.success).toBe(true);
+    // vite build → npm install --prefix functions → firebase deploy の順
+    expect(calls.map((c) => [c.cmd, ...c.args.slice(0, 3)])).toEqual([
+      ["npx", "vite", "build"],
+      ["npm", "install", "--prefix", "functions"],
+      ["npx", "firebase", "deploy", "--non-interactive"],
+    ]);
+  });
+
+  it("firebase 経路: functions が object + package.json あり → npm install --prefix が混入する", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({
+        hosting: { public: "dist" },
+        functions: { source: "functions" },
+      }),
+    );
+    mkdirSync(join(tmp, "functions"));
+    writeFileSync(join(tmp, "functions/package.json"), "{}");
+    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("le-serpent");
+
+    expect(result.success).toBe(true);
+    expect(calls.map((c) => [c.cmd, ...c.args.slice(0, 3)])).toEqual([
+      ["npx", "vite", "build"],
+      ["npm", "install", "--prefix", "functions"],
+      ["npx", "firebase", "deploy", "--non-interactive"],
+    ]);
+  });
+
+  it("firebase 経路: functions 未定義 (hosting のみ) → npm install は呼ばれない", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({ hosting: { public: "dist" } }),
+    );
+    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("le-serpent");
+
+    expect(result.success).toBe(true);
+    expect(calls.map((c) => c.args.slice(0, 2))).toEqual([
+      ["vite", "build"],
+      ["firebase", "deploy"],
+    ]);
+  });
+
+  it("firebase 経路: functions 定義あり + <source>/package.json 不在 → npm install スキップ", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({
+        hosting: { public: "dist" },
+        functions: { source: "functions" },
+      }),
+    );
+    // functions ディレクトリ / package.json は作らない
+    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("le-serpent");
+
+    expect(result.success).toBe(true);
+    expect(calls.map((c) => c.args.slice(0, 2))).toEqual([
+      ["vite", "build"],
+      ["firebase", "deploy"],
+    ]);
+  });
+
+  it("firebase 経路: functions array 複数 codebase → 各 source に npm install。同一 source は dedup", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({
+        hosting: { public: "dist" },
+        functions: [
+          { source: "functions", codebase: "default" },
+          { source: "billing", codebase: "billing" },
+          { source: "functions", codebase: "duplicate" },
+        ],
+      }),
+    );
+    mkdirSync(join(tmp, "functions"));
+    writeFileSync(join(tmp, "functions/package.json"), "{}");
+    mkdirSync(join(tmp, "billing"));
+    writeFileSync(join(tmp, "billing/package.json"), "{}");
+    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("le-serpent");
+
+    expect(result.success).toBe(true);
+    const npmInstalls = calls.filter(
+      (c) => c.cmd === "npm" && c.args[0] === "install",
+    );
+    expect(npmInstalls).toHaveLength(2);
+    expect(npmInstalls.map((c) => c.args[2]).sort()).toEqual([
+      "billing",
+      "functions",
+    ]);
+  });
+});
+
+describe("readFunctionsSources", () => {
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "deploy-fns-"));
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+    vi.resetModules();
+  });
+
+  it("array 形式 → source 一覧を返す", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({
+        functions: [{ source: "functions" }, { source: "billing" }],
+      }),
+    );
+    const { readFunctionsSources } = await import("./deploy.js");
+    expect(readFunctionsSources(tmp)).toEqual(["functions", "billing"]);
+  });
+
+  it("object 形式 → 単一 source を返す", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({ functions: { source: "functions" } }),
+    );
+    const { readFunctionsSources } = await import("./deploy.js");
+    expect(readFunctionsSources(tmp)).toEqual(["functions"]);
+  });
+
+  it("functions キー無し → 空配列", async () => {
+    writeFileSync(join(tmp, "firebase.json"), "{}");
+    const { readFunctionsSources } = await import("./deploy.js");
+    expect(readFunctionsSources(tmp)).toEqual([]);
+  });
+
+  it("壊れた JSON → 空配列", async () => {
+    writeFileSync(join(tmp, "firebase.json"), "{not valid json");
+    const { readFunctionsSources } = await import("./deploy.js");
+    expect(readFunctionsSources(tmp)).toEqual([]);
+  });
+
+  it("source 省略時は 'functions' をデフォルト + 同一 source は dedup", async () => {
+    writeFileSync(
+      join(tmp, "firebase.json"),
+      JSON.stringify({
+        functions: [{}, { source: "billing" }, { source: "functions" }],
+      }),
+    );
+    const { readFunctionsSources } = await import("./deploy.js");
+    expect(readFunctionsSources(tmp)).toEqual(["functions", "billing"]);
+  });
+
+  it("firebase.json 自体が無い → 空配列", async () => {
+    const { readFunctionsSources } = await import("./deploy.js");
+    expect(readFunctionsSources(tmp)).toEqual([]);
   });
 });

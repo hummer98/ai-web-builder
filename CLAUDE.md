@@ -108,7 +108,7 @@ OpenCode MCP 構成 (opencode.json):
 
 - `OPENROUTER_API_KEY` — LLM API
 - `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` — Cloudflare デプロイ用 (wrangler が参照)
-- `FIREBASE_TOKEN` — Firebase デプロイ用 (`firebase login:ci` で発行。`--token` ではなく env 経由で渡し ps から見えないようにしている)
+- `FIREBASE_TOKEN` — Firebase デプロイ用 (`firebase login:ci` で発行。`--token` ではなく env 経由で渡し ps から見えないようにしている。CLI 公式上 deprecated 扱いだが現行版でも有効。将来は `GOOGLE_APPLICATION_CREDENTIALS` + service account JSON への置き換えを検討)
 - `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` — GitHub App
 
 ### 本番認証 (Fly.io)
