@@ -17,7 +17,8 @@
 ## 技術スタック
 
 - **編集環境:** Fly.io (Fly Machines + Fly Volumes, Auto Start/Stop)
-- **本番ホスティング:** Cloudflare (Pages + Workers + D1)
+- **本番ホスティング:** Cloudflare (Pages + Workers + D1) または Firebase (Hosting + Cloud Functions)
+  - ゲストサイトの workspace 直下に `wrangler.toml` があれば Cloudflare、`firebase.json` があれば Firebase に自動振り分け
 - **フロントエンド:** React + Tailwind CSS
 - **バックエンド:** Hono (開発: Node.js / 本番: Cloudflare Workers)
 - **DB:** Cloudflare D1 (SQLite 互換)
@@ -106,7 +107,8 @@ OpenCode MCP 構成 (opencode.json):
 `.envrc` に格納 (gitignore 済み)。本番は Fly Secrets。
 
 - `OPENROUTER_API_KEY` — LLM API
-- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` — デプロイ
+- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` — Cloudflare デプロイ用 (wrangler が参照)
+- `FIREBASE_TOKEN` — Firebase デプロイ用 (`firebase login:ci` で発行。`--token` ではなく env 経由で渡し ps から見えないようにしている)
 - `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` — GitHub App
 
 ### 本番認証 (Fly.io)

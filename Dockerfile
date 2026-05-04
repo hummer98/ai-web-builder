@@ -2,7 +2,7 @@ FROM node:22-slim
 
 # システム依存
 RUN apt-get update && apt-get install -y git curl jq && rm -rf /var/lib/apt/lists/*
-RUN npm i -g tsx npm-run-all2
+RUN npm i -g tsx npm-run-all2 firebase-tools
 
 # OpenCode CLI (Go バイナリ)
 RUN curl -fsSL https://opencode.ai/install | bash && \

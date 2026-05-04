@@ -117,7 +117,7 @@ describe("ws-actions", () => {
     it("sends {type:'deploy', success:true, url} on success", async () => {
       vi.resetModules();
       vi.doMock("./deploy.js", () => ({
-        deploy: vi.fn(async () => ({ success: true, pagesUrl: "https://example.pages.dev" })),
+        deploy: vi.fn(async () => ({ success: true, url: "https://example.pages.dev" })),
       }));
       const reloaded = await import("./ws-actions.js");
 

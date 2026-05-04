@@ -47,7 +47,7 @@ export async function executeDeploy(ws: WSSender, siteDomain: string): Promise<v
   try {
     const result = await deploy(siteDomain);
     const msg: WSOutboundMessage = result.success
-      ? { type: "deploy", success: true, url: result.pagesUrl }
+      ? { type: "deploy", success: true, url: result.url }
       : { type: "deploy", success: false, error: result.error };
     sendOutbound(ws, msg);
   } catch (err) {
