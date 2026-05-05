@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { postprocessOpencodeJson } from "../../opencode-postprocess.mjs";
 import { getOctokit, getInstallationToken, isGitHubAppConfigured } from "./github-app.js";
 import { createLogger } from "./logger.js";
+import { loadSecrets } from "./secrets-store.js";
 import { sanitizeError } from "./utils.js";
 
 const log = createLogger("agent-server");
@@ -17,14 +18,18 @@ const COMMON_MD_ABS_PATH = join(CONTAINER_DIR, "instructions", "common.md");
  * scaffold をコピーしたワークスペース内の opencode.json に対して、
  * - 共通 instructions (common.md) の絶対パス注入
  * - SITE_BRIEF.md (workspace 直下) の絶対パス注入
- * - nano-banana MCP への GEMINI_API_KEY 注入
+ * - openrouter / nano-banana(gemini) MCP への apiKey 注入（secretsStore 経由）
  * を行う。start.sh (本番) と対称になるローカル開発側の経路。
+ *
+ * BYOK 必須化: env 経由の fallback は削除済み。secrets.json からのみ読む。
  */
 export function postprocessWorkspaceOpencodeJson(workspacePath: string): void {
+  const secrets = loadSecrets();
   postprocessOpencodeJson(join(workspacePath, "opencode.json"), {
     commonMdAbsPath: COMMON_MD_ABS_PATH,
     siteBriefAbsPath: resolve(workspacePath, "SITE_BRIEF.md"),
-    nanoBananaApiKey: process.env.GEMINI_API_KEY,
+    openrouterApiKey: secrets.openrouter?.apiKey,
+    geminiApiKey: secrets.gemini?.apiKey,
   });
 }
 

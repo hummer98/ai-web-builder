@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../../..");
 const POSTPROCESS_MODULE = resolve(REPO_ROOT, "container/opencode-postprocess.mjs");
+const POSTPROCESS_SCRIPT = POSTPROCESS_MODULE;
+const COMMON_MD_FOR_CLI = resolve(REPO_ROOT, "container/instructions/common.md");
 
 type Postprocess = typeof import("../../opencode-postprocess.mjs");
 
@@ -259,5 +262,271 @@ describe("postprocessOpencodeJson", () => {
       // @ts-expect-error - intentionally missing required field
       mod.postprocessOpencodeJson(jsonPath, {})
     ).toThrow();
+  });
+
+  describe("openrouter apiKey", () => {
+    it("openrouterApiKey を渡すと provider.openrouter.options.apiKey に実値が書き込まれる", () => {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            provider: {
+              openrouter: { options: { apiKey: "{env:OPENROUTER_API_KEY}" } },
+            },
+          },
+          null,
+          2
+        )
+      );
+      mod.postprocessOpencodeJson(jsonPath, {
+        commonMdAbsPath: "/app/container/instructions/common.md",
+        openrouterApiKey: "BYOK_OR_CANARY_DO_NOT_LOG",
+      });
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.provider.openrouter.options.apiKey).toBe(
+        "BYOK_OR_CANARY_DO_NOT_LOG"
+      );
+    });
+
+    it("openrouterApiKey 未指定で既存の placeholder apiKey は削除される", () => {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            provider: {
+              openrouter: { options: { apiKey: "{env:OPENROUTER_API_KEY}" } },
+            },
+          },
+          null,
+          2
+        )
+      );
+      mod.postprocessOpencodeJson(jsonPath, {
+        commonMdAbsPath: "/app/container/instructions/common.md",
+      });
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.provider.openrouter.options.apiKey).toBeUndefined();
+    });
+
+    it("openrouterApiKey が空文字でも apiKey は削除される", () => {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            provider: {
+              openrouter: { options: { apiKey: "old-value" } },
+            },
+          },
+          null,
+          2
+        )
+      );
+      mod.postprocessOpencodeJson(jsonPath, {
+        commonMdAbsPath: "/app/container/instructions/common.md",
+        openrouterApiKey: "",
+      });
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.provider.openrouter.options.apiKey).toBeUndefined();
+    });
+
+    it("provider.openrouter.options が空オブジェクトでも壊れない", () => {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          { provider: { openrouter: { options: {} } } },
+          null,
+          2
+        )
+      );
+      expect(() =>
+        mod.postprocessOpencodeJson(jsonPath, {
+          commonMdAbsPath: "/app/container/instructions/common.md",
+        })
+      ).not.toThrow();
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.provider.openrouter.options).toEqual({});
+    });
+
+    it("provider.openrouter が無くても壊れない", () => {
+      writeFileSync(jsonPath, JSON.stringify({ provider: {} }, null, 2));
+      expect(() =>
+        mod.postprocessOpencodeJson(jsonPath, {
+          commonMdAbsPath: "/app/container/instructions/common.md",
+          openrouterApiKey: "BYOK_OR_CANARY_DO_NOT_LOG",
+        })
+      ).not.toThrow();
+    });
+  });
+
+  describe("--from-secrets CLI", () => {
+    it("SECRETS_FILE 経由で openrouter / gemini の apiKey が opencode.json に書き込まれる", () => {
+      const secretsPath = join(tmpDir, "secrets.json");
+      writeFileSync(
+        secretsPath,
+        JSON.stringify({
+          openrouter: { apiKey: "BYOK_OR_CANARY_DO_NOT_LOG" },
+          gemini: { apiKey: "BYOK_GEMINI_CANARY_DO_NOT_LOG" },
+        })
+      );
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            provider: { openrouter: { options: { apiKey: "{env:OPENROUTER_API_KEY}" } } },
+            mcp: {
+              "nano-banana": { type: "local", command: ["npx"] },
+            },
+          },
+          null,
+          2
+        )
+      );
+      execFileSync(
+        "node",
+        [
+          POSTPROCESS_SCRIPT,
+          jsonPath,
+          `--common=${COMMON_MD_FOR_CLI}`,
+          "--from-secrets",
+        ],
+        {
+          env: {
+            ...process.env,
+            // ホスト側の env キー混入を防ぐため、テストでは明示的に空にする
+            SECRETS_FILE: secretsPath,
+            OPENROUTER_API_KEY: "",
+            GEMINI_API_KEY: "",
+          },
+          encoding: "utf-8",
+        }
+      );
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.provider.openrouter.options.apiKey).toBe(
+        "BYOK_OR_CANARY_DO_NOT_LOG"
+      );
+      expect(d.mcp["nano-banana"].environment.GEMINI_API_KEY).toBe(
+        "BYOK_GEMINI_CANARY_DO_NOT_LOG"
+      );
+    });
+
+    it("--from-secrets 指定で secrets.json が無い場合、apiKey フィールドは削除される（env fallback しない）", () => {
+      const missingSecretsPath = join(tmpDir, "no-secrets.json");
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            provider: { openrouter: { options: { apiKey: "{env:OPENROUTER_API_KEY}" } } },
+            mcp: {
+              "nano-banana": {
+                type: "local",
+                command: ["npx"],
+                environment: { GEMINI_API_KEY: "leftover" },
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      execFileSync(
+        "node",
+        [
+          POSTPROCESS_SCRIPT,
+          jsonPath,
+          `--common=${COMMON_MD_FOR_CLI}`,
+          "--from-secrets",
+        ],
+        {
+          env: {
+            ...process.env,
+            SECRETS_FILE: missingSecretsPath,
+            OPENROUTER_API_KEY: "OPENROUTER_TEST_LEAK_CANARY_VALUE_DO_NOT_LOG",
+            GEMINI_API_KEY: "GEMINI_TEST_LEAK_CANARY_VALUE_DO_NOT_LOG",
+          },
+          encoding: "utf-8",
+        }
+      );
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.provider.openrouter.options.apiKey).toBeUndefined();
+      expect(d.mcp["nano-banana"].environment.GEMINI_API_KEY).toBeUndefined();
+      const fileContent = readFileSync(jsonPath, "utf-8");
+      expect(fileContent).not.toContain("OPENROUTER_TEST_LEAK_CANARY_VALUE_DO_NOT_LOG");
+      expect(fileContent).not.toContain("GEMINI_TEST_LEAK_CANARY_VALUE_DO_NOT_LOG");
+    });
+  });
+
+  describe("gemini / nano-banana alias", () => {
+    it("geminiApiKey を渡しても nanoBananaApiKey と同等に動作（alias）", () => {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            mcp: {
+              "nano-banana": {
+                type: "local",
+                command: ["npx", "nano-banana-mcp"],
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      mod.postprocessOpencodeJson(jsonPath, {
+        commonMdAbsPath: "/app/container/instructions/common.md",
+        geminiApiKey: "BYOK_GEMINI_CANARY_DO_NOT_LOG",
+      });
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.mcp["nano-banana"].environment.GEMINI_API_KEY).toBe(
+        "BYOK_GEMINI_CANARY_DO_NOT_LOG"
+      );
+    });
+
+    it("geminiApiKey 未指定で既存 GEMINI_API_KEY は削除される（他 env キーは保持）", () => {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            mcp: {
+              "nano-banana": {
+                type: "local",
+                command: ["npx"],
+                environment: { GEMINI_API_KEY: "old-key", FOO: "bar" },
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+      mod.postprocessOpencodeJson(jsonPath, {
+        commonMdAbsPath: "/app/container/instructions/common.md",
+      });
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.mcp["nano-banana"].environment.GEMINI_API_KEY).toBeUndefined();
+      expect(d.mcp["nano-banana"].environment.FOO).toBe("bar");
+    });
+
+    it("geminiApiKey と nanoBananaApiKey 両方指定なら geminiApiKey が優先される", () => {
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(
+          {
+            mcp: {
+              "nano-banana": { type: "local", command: ["npx"] },
+            },
+          },
+          null,
+          2
+        )
+      );
+      mod.postprocessOpencodeJson(jsonPath, {
+        commonMdAbsPath: "/app/container/instructions/common.md",
+        geminiApiKey: "from-gemini",
+        nanoBananaApiKey: "from-nano",
+      });
+      const d = JSON.parse(readFileSync(jsonPath, "utf-8"));
+      expect(d.mcp["nano-banana"].environment.GEMINI_API_KEY).toBe("from-gemini");
+    });
   });
 });

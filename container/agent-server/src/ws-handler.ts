@@ -23,6 +23,11 @@ import {
   readSiteBrief,
   writeSiteBrief,
 } from "./site-brief.js";
+import { addClient, removeClient } from "./ws-clients.js";
+import { isRestarting } from "./opencode-supervisor.js";
+
+const RESTARTING_MESSAGE =
+  "設定を反映しています。少し待ってからもう一度お試しください。";
 
 const log = createLogger("agent-server");
 
@@ -279,6 +284,19 @@ export function registerWsHandler(
         msg: WsInboundMessage,
         ws: { send: (data: string) => void }
       ): Promise<void> => {
+        // 再起動中は重い処理を弾く（友人ペルソナ向け文言で即応答）
+        if (
+          isRestarting() &&
+          (msg.type === "chat" ||
+            msg.type === "undo" ||
+            msg.type === "deploy" ||
+            msg.type === "revert")
+        ) {
+          ws.send(
+            JSON.stringify({ type: "error", message: RESTARTING_MESSAGE })
+          );
+          return;
+        }
         switch (msg.type) {
           case "chat": {
             lastUserMessage = msg.message;
@@ -494,6 +512,7 @@ export function registerWsHandler(
       return {
         async onOpen(_, ws) {
           log.info("WS connected");
+          addClient(ws);
 
           inactivityTimer = createInactivityTimer(
             deps.inactivityTimeoutMs,
@@ -583,8 +602,9 @@ export function registerWsHandler(
           await handleMessage(parsed.data, ws);
         },
 
-        onClose() {
+        onClose(_, ws) {
           log.info("WS disconnected", { sessionId });
+          removeClient(ws);
           inactivityTimer?.stop();
           inactivityTimer = undefined;
           if (eventIterator) {

@@ -28,4 +28,5 @@ export type WSOutboundMessage =
   | { type: "site-init"; action: "created" | "imported"; repoUrl?: string }
   | { type: "warning"; message: string; reasons?: string[] }
   | { type: "site-brief"; content: string; isEmpty: boolean }
-  | { type: "site-brief-saved"; hash?: string };
+  | { type: "site-brief-saved"; hash?: string }
+  | { type: "system"; event: "opencode_restarting" | "opencode_ready" };

@@ -15,6 +15,21 @@ vi.mock("./site-init.js", () => ({
   resetWorkspace: (...args: unknown[]) => resetWorkspaceMock(...args),
 }));
 
+// supervisor.isRestarting のモック (デフォルト false)
+const isRestartingMock = vi.fn(() => false);
+vi.mock("./opencode-supervisor.js", () => ({
+  isRestarting: () => isRestartingMock(),
+}));
+
+// ws-clients.add/removeClient のスパイ
+const addClientMock = vi.fn();
+const removeClientMock = vi.fn();
+vi.mock("./ws-clients.js", () => ({
+  addClient: (...args: unknown[]) => addClientMock(...args),
+  removeClient: (...args: unknown[]) => removeClientMock(...args),
+  broadcastSystem: vi.fn(),
+}));
+
 import { registerWsHandler } from "./ws-handler.js";
 
 type FakeOpencode = {
@@ -132,6 +147,10 @@ describe("registerWsHandler (WS integration)", () => {
     createNewSiteMock.mockReset();
     importExistingRepoMock.mockReset();
     resetWorkspaceMock.mockReset();
+    isRestartingMock.mockReset();
+    isRestartingMock.mockReturnValue(false);
+    addClientMock.mockReset();
+    removeClientMock.mockReset();
     vi.unstubAllEnvs();
   });
 
@@ -412,5 +431,77 @@ describe("registerWsHandler (WS integration)", () => {
     );
     expect(err).toBeUndefined();
     expect(opencode.session.abort).not.toHaveBeenCalled();
+  });
+
+  it("onOpen で addClient が、onClose で removeClient が呼ばれる", async () => {
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+    // 前テストからの遅延 close イベントを呑み込んでからカウントをリセット
+    await new Promise((r) => setTimeout(r, 200));
+    addClientMock.mockClear();
+    removeClientMock.mockClear();
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    await new Promise<void>((r) => ws.on("open", () => r()));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(addClientMock).toHaveBeenCalledTimes(1);
+
+    ws.close();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(removeClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("isRestarting=true のとき chat は再起動メッセージを返し handler が走らない", async () => {
+    isRestartingMock.mockReturnValue(true);
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    const messages: unknown[] = [];
+    ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(JSON.stringify({ type: "chat", message: "やあ" }));
+    await new Promise((r) => setTimeout(r, 200));
+    ws.close();
+
+    const err = messages.find(
+      (m): m is { type: string; message: string } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "error"
+    );
+    expect(err).toBeDefined();
+    expect(err!.message).toContain("設定を反映しています");
+    expect(opencode.session.create).not.toHaveBeenCalled();
+    expect(opencode.session.promptAsync).not.toHaveBeenCalled();
+  });
+
+  it("isRestarting=true で undo / deploy / revert もブロックされる", async () => {
+    isRestartingMock.mockReturnValue(true);
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    for (const msg of [
+      { type: "undo" },
+      { type: "deploy" },
+      { type: "revert", hash: "abcdef1" },
+    ]) {
+      const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+      const messages: unknown[] = [];
+      ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+      await new Promise<void>((r) => ws.on("open", () => r()));
+      ws.send(JSON.stringify(msg));
+      await new Promise((r) => setTimeout(r, 150));
+      ws.close();
+      const err = messages.find(
+        (m): m is { type: string; message: string } =>
+          typeof m === "object" &&
+          m !== null &&
+          (m as { type: string }).type === "error"
+      );
+      expect(err, `block expected for ${msg.type}`).toBeDefined();
+      expect(err!.message).toContain("設定を反映しています");
+    }
   });
 });

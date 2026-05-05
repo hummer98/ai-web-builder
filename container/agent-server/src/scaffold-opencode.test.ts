@@ -30,6 +30,21 @@ describe("container/scaffold/opencode.json", () => {
     expect(d.provider.openrouter).toBeDefined();
   });
 
+  it("provider.openrouter.options.apiKey placeholder は含まれない (BYOK 必須化)", () => {
+    const d = load();
+    expect(d.provider.openrouter.options?.apiKey).toBeUndefined();
+    const raw = readFileSync(SCAFFOLD_OPENCODE_JSON, "utf-8");
+    expect(raw).not.toContain("{env:OPENROUTER_API_KEY}");
+  });
+
+  it("nano-banana に environment.GEMINI_API_KEY が事前設定されていない", () => {
+    const d = load();
+    const env = d.mcp?.["nano-banana"]?.environment;
+    if (env) {
+      expect(env.GEMINI_API_KEY).toBeUndefined();
+    }
+  });
+
   it("既存の mcp フィールド（playwright / log-reader / nano-banana）が保持されている", () => {
     const d = load();
     expect(d.mcp).toBeDefined();

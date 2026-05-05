@@ -1,13 +1,15 @@
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import { createLogger } from "./logger.js";
+// パス解決ロジックは secrets-reader.mjs に集約。
+// 重複した解決ロジックを置かないこと（plan §1.1 採用案 D）。
+import { resolveSecretsPath } from "../../secrets-reader.mjs";
 
 export interface Secrets {
   openrouter?: { apiKey: string };
@@ -24,17 +26,6 @@ export interface SecretStatus {
 }
 
 const log = createLogger("agent-server");
-
-function resolveSecretsPath(): string {
-  const fromEnv = process.env.SECRETS_FILE;
-  if (fromEnv && fromEnv.length > 0) {
-    return fromEnv;
-  }
-  if (existsSync("/data")) {
-    return "/data/secrets.json";
-  }
-  return resolve(import.meta.dirname, "../../../data/secrets.json");
-}
 
 const SECRETS_PATH = resolveSecretsPath();
 

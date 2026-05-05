@@ -129,12 +129,15 @@ if [ ! -f "$WORKSPACE_DIR/SITE_BRIEF.md" ]; then
   cp /app/container/scaffold/SITE_BRIEF.md "$WORKSPACE_DIR/SITE_BRIEF.md"
 fi
 
-# opencode.json の後処理: 共通 instructions / SITE_BRIEF の絶対パス注入 + nano-banana 環境変数
+# SECRETS_FILE を明示的に export し、postprocess 側のデフォルト解決と一致させる
+export SECRETS_FILE="${SECRETS_FILE:-/data/secrets.json}"
+
+# opencode.json の後処理: 共通 instructions / SITE_BRIEF の絶対パス注入 + secretsStore 経由のキー注入
 node /app/container/opencode-postprocess.mjs \
   "$WORKSPACE_DIR/opencode.json" \
   "--common=/app/container/instructions/common.md" \
   "--site-brief=${WORKSPACE_DIR}/SITE_BRIEF.md" \
-  "--nano-banana-key=${GEMINI_API_KEY:-}"
+  "--from-secrets"
 
 # Vite のキャッシュクリア（NODE_ENV 変更時に必要）。symlink 経由なので
 # 実体は /app/container/scaffold/node_modules/.vite (image overlay 内)。
@@ -148,9 +151,8 @@ rm -rf "$WORKSPACE_DIR/node_modules/.vite" 2>/dev/null || true
 # stdout/stderr を Fly stdout と $LOGS_DIR/hono.log の両方に流す
 (cd "$WORKSPACE_DIR" && npx tsx watch functions/api/index.ts 2>&1 | tee -a "$LOGS_DIR/hono.log") &
 
-# OpenCode serve (AI 編集エンジン)
-# stdout/stderr を Fly stdout と $LOGS_DIR/opencode.log の両方に流す
-(cd "$WORKSPACE_DIR" && opencode serve --port 4096 --hostname 127.0.0.1 2>&1 | tee -a "$LOGS_DIR/opencode.log") &
+# OpenCode serve は agent-server の supervisor が起動・監視するため start.sh では起動しない。
+# (BYOK でキー更新時に再起動する必要があるため、child reference を agent-server が保持する)
 
 # Agent Server (メインプロセス — フォアグラウンド)
 cd /app/container/agent-server && exec npx tsx src/index.ts 2>&1 | tee -a "$LOGS_DIR/agent-server.log"
