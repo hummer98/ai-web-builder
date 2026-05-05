@@ -97,13 +97,15 @@ The builder edits a **separate guest repository** per user — a standard React 
 ## Local development
 
 ```bash
-cp .envrc.example .envrc && direnv allow   # First time only: copy template and load secrets
+cp .envrc.example .envrc && direnv allow   # First time only: copy template and load server-side secrets (GitHub App)
 npm run dev     # Starts 4 processes in parallel:
                 #   Agent Server     :8080
                 #   opencode serve   :4096
                 #   Vite dev server  :5173
                 #   Hono dev server  :3000
 ```
+
+After the first launch, open the gear icon in the editor to bring up the **Settings Dialog** and register your access keys (OpenRouter, Cloudflare, Firebase, optionally Gemini) — this is BYOK (Bring Your Own Keys); the values are saved to `data/secrets.json` (0600) and never committed. The editor keeps the chat input disabled until an OpenRouter key is set.
 
 ## What this is NOT
 

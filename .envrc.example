@@ -1,14 +1,8 @@
 # direnv 用テンプレート: cp .envrc.example .envrc して編集後 `direnv allow`
-
-# OpenRouter (LLM)
-export OPENROUTER_API_KEY=
-
-# Cloudflare (デプロイ)
-export CLOUDFLARE_API_TOKEN=
-export CLOUDFLARE_ACCOUNT_ID=
-
-# Firebase (デプロイ)
-export FIREBASE_TOKEN=
+#
+# このファイルにはサーバー側鍵（GitHub App 等）のみを書く。
+# ユーザーの API 鍵 (OpenRouter / Gemini / Cloudflare / Firebase) は
+# editor の設定画面から登録する (BYOK) — data/secrets.json (0600) に保存される。
 
 # GitHub App
 export GITHUB_APP_ID=
@@ -23,6 +17,3 @@ export ALLOWED_ORIGINS=
 # Playwright Demo (テスト用)
 export DEMO_PASSWORD=
 export DEMO_URL=
-
-# Image Generation (任意)
-export GEMINI_API_KEY=

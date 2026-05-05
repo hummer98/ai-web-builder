@@ -97,13 +97,15 @@ ai-web-builder/
 ## ローカル開発
 
 ```bash
-cp .envrc.example .envrc && direnv allow   # 初回のみ: テンプレートをコピーしてシークレット読み込み
+cp .envrc.example .envrc && direnv allow   # 初回のみ: テンプレートをコピーしてサーバー側シークレット（GitHub App 等）を読み込み
 npm run dev     # 4プロセス並列起動:
                 #   Agent Server     :8080
                 #   opencode serve   :4096
                 #   Vite dev server  :5173
                 #   Hono dev server  :3000
 ```
+
+初回起動後、エディター右上の歯車アイコンから設定画面を開き、OpenRouter / Cloudflare / Firebase（必要なら Gemini）のアクセスキーを登録してください。キーは `data/secrets.json`（0600、git 管理外）に保存されます。OpenRouter キーが未登録の間はチャット入力が無効化され、設定画面が自動で開きます。
 
 ## これは何ではないか
 

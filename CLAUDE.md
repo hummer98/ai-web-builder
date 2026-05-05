@@ -57,9 +57,11 @@ ai-web-builder/
 ## ローカル開発
 
 ```bash
-direnv allow    # .envrc のシークレット読み込み
+direnv allow    # .envrc のサーバー側鍵 (GitHub App 等) を読み込み
 npm run dev     # 4プロセス並列起動
 ```
+
+初回起動後、editor の歯車アイコンから設定画面を開いて OpenRouter / Cloudflare / Firebase / Gemini のキーを登録する（BYOK）。OpenRouter キー未登録の状態ではチャット入力が disabled になり、SettingsDialog が自動で開く。
 
 ## ログ
 
@@ -104,12 +106,37 @@ OpenCode MCP 構成 (opencode.json):
 
 ## シークレット
 
-`.envrc` に格納 (gitignore 済み)。本番は Fly Secrets。
+ユーザーが扱う鍵は **BYOK (Bring Your Own Keys)** に統一済み。editor の歯車アイコンから設定画面を開いて登録する。サーバー側の運用鍵 (GitHub App) のみ env / Fly Secrets / `.envrc` で読む。
 
-- `OPENROUTER_API_KEY` — LLM API
-- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` — Cloudflare デプロイ用 (wrangler が参照)
-- `FIREBASE_TOKEN` — Firebase デプロイ用 (`firebase login:ci` で発行。`--token` ではなく env 経由で渡し ps から見えないようにしている。CLI 公式上 deprecated 扱いだが現行版でも有効。将来は `GOOGLE_APPLICATION_CREDENTIALS` + service account JSON への置き換えを検討)
-- `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` — GitHub App
+### BYOK 対象（editor 設定画面から登録）
+
+| プロバイダ | 用途 | 必要フィールド |
+|---|---|---|
+| OpenRouter | LLM API（OpenCode 経由）— **必須**。未登録時はチャット入力が disabled になる | `apiKey` |
+| Gemini | 画像生成（任意） | `apiKey` |
+| Cloudflare | wrangler デプロイ（Pages/Workers/D1） | `apiToken` + `accountId` |
+| Firebase | firebase-tools デプロイ（Hosting/Functions） | `token` (`firebase login:ci` で発行) |
+
+- 保存先: `/data/secrets.json` (0600)。`SECRETS_FILE` env で上書き可。ローカルでは `<repo>/data/secrets.json` にフォールバック (`container/secrets-reader.mjs::resolveSecretsPath`)
+- HTTP API: `GET/PUT/DELETE /api/secrets` (`container/agent-server/src/api-secrets.ts`)。レスポンスに鍵本体を含めず、status は `set` boolean と `last4` のみを返す
+- OpenCode 起動: `opencode-supervisor` が secrets.json から openrouter / gemini を読んで `opencode.json` に流し込む。`buildSanitizedEnv()` で `OPENROUTER_API_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` を `process.env` から削除した上で spawn する（env 経由の漏洩防止）
+- Deploy: `deploy.ts` は `loadSecrets()` 経由で wrangler / firebase に env を渡す。未登録時は `cloudflare_secrets_not_configured` / `firebase_secrets_not_configured` でガード
+- 鍵を更新／削除すると openrouter / gemini については opencode が自動再起動 (`opencode-supervisor::restartOpencode`)
+
+### サーバー側鍵（env / Fly Secrets / `.envrc`）
+
+- `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY` — GitHub App。Installation Token で git push / gh issue
+- `GITHUB_OWNER` — 未設定時は `hummer98` にフォールバック（本番では明示設定推奨）
+
+### 旧 Fly Secrets（廃止予定 — 参照されていない）
+
+過去に `flyctl secrets set` で投入された以下のキーは **agent-server のコード上、いずれの経路からも参照されない**。`buildSanitizedEnv()` で明示削除されるので opencode/wrangler/firebase の spawn にも漏れない。Fly 側の値は運用影響を最小化するため削除しないが、将来的には `flyctl secrets unset` で取り除く予定。
+
+- `OPENROUTER_API_KEY`
+- `GEMINI_API_KEY`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `FIREBASE_TOKEN`
 
 ### 本番認証 (Fly.io)
 
