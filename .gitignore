@@ -16,3 +16,7 @@ e2e/results/
 
 # サイト設定（機密情報を含むため Fly Secret SITES_JSON 経由で配布）
 sites.json
+
+# BYOK ローカルストア（API キー類は個人デバイスから出さない）
+data/secrets.json
+data/secrets.json.tmp
