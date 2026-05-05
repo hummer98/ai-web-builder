@@ -2,8 +2,30 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Secrets } from "./secrets-store.js";
 
 let tmp: string;
+
+// vi.mock は hoist される。hoisted 内で mock 関数と holder を作り、
+// 各 it で holder を更新することでテストごとに挙動を切り替える。
+const { execFileSyncMock, secretsHolder } = vi.hoisted(() => ({
+  execFileSyncMock: vi.fn<
+    (
+      cmd: string,
+      args: string[],
+      opts: { env?: NodeJS.ProcessEnv },
+    ) => string
+  >(),
+  secretsHolder: { current: {} as Secrets },
+}));
+
+vi.mock("./secrets-store.js", () => ({
+  loadSecrets: () => secretsHolder.current,
+}));
+
+vi.mock("node:child_process", () => ({
+  execFileSync: execFileSyncMock,
+}));
 
 describe("detectProvider", () => {
   beforeEach(() => {
@@ -44,18 +66,19 @@ describe("detectProvider", () => {
 });
 
 describe("deploy", () => {
-  let calls: { cmd: string; args: string[] }[];
+  let calls: { cmd: string; args: string[]; env?: NodeJS.ProcessEnv }[];
 
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), "deploy-run-"));
     calls = [];
+    secretsHolder.current = {};
     vi.stubEnv("WORKSPACE_DIR", tmp);
     vi.resetModules();
 
-    // execFileSync をモック化して、実コマンドは走らせず引数だけ記録する
-    vi.doMock("node:child_process", () => ({
-      execFileSync: vi.fn((cmd: string, args: string[]) => {
-        calls.push({ cmd, args });
+    execFileSyncMock.mockReset();
+    execFileSyncMock.mockImplementation(
+      (cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv }) => {
+        calls.push({ cmd, args, env: opts?.env });
         if (args[0] === "wrangler" && args[1] === "pages") {
           return "Deployed to https://example.pages.dev\n";
         }
@@ -63,21 +86,21 @@ describe("deploy", () => {
           return "Hosting URL: https://le-serpent.web.app\n";
         }
         return "";
-      }),
-    }));
+      },
+    );
   });
 
   afterEach(() => {
     rmSync(tmp, { recursive: true, force: true });
     vi.unstubAllEnvs();
-    vi.doUnmock("node:child_process");
-    vi.resetModules();
+    secretsHolder.current = {};
   });
 
   it("cloudflare 経路: vite build → wrangler pages deploy → wrangler deploy を順に呼び url を返す", async () => {
     writeFileSync(join(tmp, "wrangler.toml"), "name = 'site'\n");
-    vi.stubEnv("CLOUDFLARE_API_TOKEN", "tok");
-    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acc");
+    secretsHolder.current = {
+      cloudflare: { apiToken: "tok", accountId: "acc" },
+    };
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("example");
@@ -90,11 +113,19 @@ describe("deploy", () => {
       ["wrangler", "pages", "deploy"],
       ["wrangler", "deploy", "functions/api/index.ts"],
     ]);
+    // env は secretsStore の値で渡され、FIREBASE_TOKEN は undefined
+    for (const c of calls) {
+      expect(c.env?.CLOUDFLARE_API_TOKEN).toBe("tok");
+      expect(c.env?.CLOUDFLARE_ACCOUNT_ID).toBe("acc");
+      expect(c.env?.FIREBASE_TOKEN).toBeUndefined();
+    }
   });
 
   it("firebase 経路: vite build → firebase deploy を呼び Hosting URL を返す", async () => {
     writeFileSync(join(tmp, "firebase.json"), "{}");
-    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+    secretsHolder.current = {
+      firebase: { token: "1//0e-fake-refresh-token" },
+    };
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("le-serpent");
@@ -109,19 +140,71 @@ describe("deploy", () => {
     // --token を CLI 引数に出していない（ps から漏れない）
     const firebaseCall = calls.find((c) => c.args[0] === "firebase");
     expect(firebaseCall?.args).not.toContain("--token");
+    // env は secretsStore の値で渡され、CLOUDFLARE_* は undefined
+    for (const c of calls) {
+      expect(c.env?.FIREBASE_TOKEN).toBe("1//0e-fake-refresh-token");
+      expect(c.env?.CLOUDFLARE_API_TOKEN).toBeUndefined();
+      expect(c.env?.CLOUDFLARE_ACCOUNT_ID).toBeUndefined();
+    }
   });
 
-  it("firebase 経路: FIREBASE_TOKEN が無いと build も走らせずエラーを返す", async () => {
+  it("firebase 経路: secrets.firebase 未設定なら build も走らずエラーを返す", async () => {
     writeFileSync(join(tmp, "firebase.json"), "{}");
-    vi.stubEnv("FIREBASE_TOKEN", "");
+    // secretsHolder.current は既定の空のまま
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("le-serpent");
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("FIREBASE_TOKEN");
-    // 早期リターンで vite build も firebase deploy も呼ばれない
+    expect(result.error).toBe("firebase_secrets_not_configured");
     expect(calls).toHaveLength(0);
+  });
+
+  it("cloudflare 経路: secrets.cloudflare 未設定なら build も走らずエラーを返す", async () => {
+    writeFileSync(join(tmp, "wrangler.toml"), "name = 'site'\n");
+    // secretsHolder.current は既定の空のまま
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("example");
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("cloudflare_secrets_not_configured");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("cloudflare 経路: env が secretsStore の値で上書きされる (host env より secrets が勝つ)", async () => {
+    writeFileSync(join(tmp, "wrangler.toml"), "name = 'site'\n");
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "env-tok");
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "env-acc");
+    secretsHolder.current = {
+      cloudflare: { apiToken: "secret-tok", accountId: "secret-acc" },
+    };
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("example");
+
+    expect(result.success).toBe(true);
+    for (const c of calls) {
+      expect(c.env?.CLOUDFLARE_API_TOKEN).toBe("secret-tok");
+      expect(c.env?.CLOUDFLARE_ACCOUNT_ID).toBe("secret-acc");
+      expect(c.env?.FIREBASE_TOKEN).toBeUndefined();
+    }
+  });
+
+  it("firebase 経路: env が secretsStore の値で上書きされる (host env より secrets が勝つ)", async () => {
+    writeFileSync(join(tmp, "firebase.json"), "{}");
+    vi.stubEnv("FIREBASE_TOKEN", "env-token");
+    secretsHolder.current = { firebase: { token: "secret-token" } };
+
+    const { deploy } = await import("./deploy.js");
+    const result = await deploy("le-serpent");
+
+    expect(result.success).toBe(true);
+    for (const c of calls) {
+      expect(c.env?.FIREBASE_TOKEN).toBe("secret-token");
+      expect(c.env?.CLOUDFLARE_API_TOKEN).toBeUndefined();
+      expect(c.env?.CLOUDFLARE_ACCOUNT_ID).toBeUndefined();
+    }
   });
 
   it("設定ファイルが無いと vite build も走らずエラーを返す", async () => {
@@ -155,13 +238,14 @@ describe("deploy", () => {
     );
     mkdirSync(join(tmp, "functions"));
     writeFileSync(join(tmp, "functions/package.json"), "{}");
-    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+    secretsHolder.current = {
+      firebase: { token: "1//0e-fake-refresh-token" },
+    };
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("le-serpent");
 
     expect(result.success).toBe(true);
-    // vite build → npm install --prefix functions → firebase deploy の順
     expect(calls.map((c) => [c.cmd, ...c.args.slice(0, 3)])).toEqual([
       ["npx", "vite", "build"],
       ["npm", "install", "--prefix", "functions"],
@@ -179,7 +263,9 @@ describe("deploy", () => {
     );
     mkdirSync(join(tmp, "functions"));
     writeFileSync(join(tmp, "functions/package.json"), "{}");
-    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+    secretsHolder.current = {
+      firebase: { token: "1//0e-fake-refresh-token" },
+    };
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("le-serpent");
@@ -197,7 +283,9 @@ describe("deploy", () => {
       join(tmp, "firebase.json"),
       JSON.stringify({ hosting: { public: "dist" } }),
     );
-    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+    secretsHolder.current = {
+      firebase: { token: "1//0e-fake-refresh-token" },
+    };
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("le-serpent");
@@ -217,8 +305,9 @@ describe("deploy", () => {
         functions: { source: "functions" },
       }),
     );
-    // functions ディレクトリ / package.json は作らない
-    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+    secretsHolder.current = {
+      firebase: { token: "1//0e-fake-refresh-token" },
+    };
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("le-serpent");
@@ -246,7 +335,9 @@ describe("deploy", () => {
     writeFileSync(join(tmp, "functions/package.json"), "{}");
     mkdirSync(join(tmp, "billing"));
     writeFileSync(join(tmp, "billing/package.json"), "{}");
-    vi.stubEnv("FIREBASE_TOKEN", "1//0e-fake-refresh-token");
+    secretsHolder.current = {
+      firebase: { token: "1//0e-fake-refresh-token" },
+    };
 
     const { deploy } = await import("./deploy.js");
     const result = await deploy("le-serpent");

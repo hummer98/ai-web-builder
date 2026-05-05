@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "./logger.js";
+import { loadSecrets } from "./secrets-store.js";
 import { sanitizeError } from "./utils.js";
 
 const log = createLogger("deploy");
@@ -47,18 +48,27 @@ export function detectProvider(workspaceDir: string): DetectResult {
 
 function run(cmd: string, args: string[]): string {
   log.info(`Running: ${cmd} ${args.join(" ")}`);
+  const secrets = loadSecrets();
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  // BYOK: secretsStore に登録された値だけを子プロセスに渡す。
+  // 未設定なら host env から漏れないよう削除する。
+  if (secrets.cloudflare) {
+    env.CLOUDFLARE_API_TOKEN = secrets.cloudflare.apiToken;
+    env.CLOUDFLARE_ACCOUNT_ID = secrets.cloudflare.accountId;
+  } else {
+    delete env.CLOUDFLARE_API_TOKEN;
+    delete env.CLOUDFLARE_ACCOUNT_ID;
+  }
+  if (secrets.firebase) {
+    env.FIREBASE_TOKEN = secrets.firebase.token;
+  } else {
+    delete env.FIREBASE_TOKEN;
+  }
   return execFileSync(cmd, args, {
     cwd: WORKSPACE_DIR,
     encoding: "utf-8",
     timeout: 120000,
-    env: {
-      ...process.env,
-      // Cloudflare: wrangler が参照
-      CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
-      CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
-      // Firebase: firebase-tools が参照（--token を CLI 引数に出さないことで ps から漏れない）
-      FIREBASE_TOKEN: process.env.FIREBASE_TOKEN,
-    },
+    env,
   }).trim();
 }
 
@@ -146,10 +156,21 @@ export async function deploy(siteName: string): Promise<DeployResult> {
       return { success: false, error: detected.error };
     }
 
-    if (detected.provider === "firebase" && !process.env.FIREBASE_TOKEN) {
-      const error =
-        "FIREBASE_TOKEN が設定されていません。`firebase login:ci` で発行してシークレットに登録してください";
-      log.error("Firebase token missing", { siteName, error });
+    const secrets = loadSecrets();
+    if (detected.provider === "cloudflare" && !secrets.cloudflare) {
+      const error = "cloudflare_secrets_not_configured";
+      log.error("Cloudflare secrets missing", {
+        siteName,
+        provider: detected.provider,
+      });
+      return { success: false, error };
+    }
+    if (detected.provider === "firebase" && !secrets.firebase) {
+      const error = "firebase_secrets_not_configured";
+      log.error("Firebase secrets missing", {
+        siteName,
+        provider: detected.provider,
+      });
       return { success: false, error };
     }
 
