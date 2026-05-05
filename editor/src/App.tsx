@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChatPanel from "./components/ChatPanel";
 import type { ChatMessage } from "./components/ChatPanel";
 import PreviewPanel from "./components/PreviewPanel";
@@ -6,7 +6,17 @@ import type { ElementContext } from "./components/PreviewPanel";
 import SettingsDialog from "./components/SettingsDialog";
 import SiteBriefModal from "./components/SiteBriefModal";
 import SiteBriefMiniModal from "./components/SiteBriefMiniModal";
+import { useSecrets } from "./hooks/useSecrets";
 import { useWebSocket } from "./hooks/useWebSocket";
+
+const BYOK_DISABLED_REASON =
+  "サイトを作る AI を動かすキーが必要です（OpenRouter）。⚙ 設定から登録してください";
+const SECRETS_LOADING_REASON = "設定を読み込んでいます…";
+const SECRETS_ERROR_REASON =
+  "設定を読み込めませんでした。⚙ 設定から再試行してください";
+const WS_DISCONNECTED_REASON = "サーバーに接続中…";
+const GEMINI_NOTICE =
+  "画像を作る機能を使うには「Gemini」のキーが必要です（任意）";
 
 const WS_URL = import.meta.env.DEV
   ? `ws://${window.location.hostname}:8080/ws`
@@ -34,6 +44,50 @@ export default function App() {
   // Settings (BYOK access keys) state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [opencodeRestarting, setOpencodeRestarting] = useState(false);
+
+  // BYOK status
+  const {
+    status: secretStatus,
+    loading: secretLoading,
+    error: secretError,
+    refresh: refreshSecrets,
+  } = useSecrets();
+
+  const openrouterReady = secretStatus?.openrouter.set === true;
+  const cloudflareReady = secretStatus?.cloudflare.set === true;
+  const firebaseReady = secretStatus?.firebase.set === true;
+  const geminiReady = secretStatus?.gemini.set === true;
+
+  // OpenRouter 未登録なら auto-open (1 セッション 1 回)
+  const openrouterAutoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!secretStatus) return;
+    if (!secretStatus.openrouter.set && !openrouterAutoOpenedRef.current) {
+      openrouterAutoOpenedRef.current = true;
+      setSettingsOpen(true);
+    }
+  }, [secretStatus]);
+
+  // settingsOpen の close transition で App 側 status を refresh
+  const settingsHasOpenedRef = useRef(false);
+  useEffect(() => {
+    if (settingsOpen) {
+      settingsHasOpenedRef.current = true;
+      return;
+    }
+    if (settingsHasOpenedRef.current) {
+      void refreshSecrets();
+    }
+  }, [settingsOpen, refreshSecrets]);
+
+  // disabledReason 算出 (優先順位: error → loading → BYOK 未登録 → WS 切断)
+  const disabledReason = useMemo<string | null>(() => {
+    if (secretStatus === null && secretError) return SECRETS_ERROR_REASON;
+    if (secretStatus === null && secretLoading) return SECRETS_LOADING_REASON;
+    if (!openrouterReady) return BYOK_DISABLED_REASON;
+    if (!connected) return WS_DISCONNECTED_REASON;
+    return null;
+  }, [secretStatus, secretError, secretLoading, openrouterReady, connected]);
 
   // ? キーでヘルプを開く、Escape で閉じる
   useEffect(() => {
@@ -111,6 +165,16 @@ export default function App() {
   const injectMessage = useCallback((role: ChatMessage["role"], content: string) => {
     setInjectedMessages((prev) => [...prev, { role, content }]);
   }, []);
+
+  // Gemini 未登録なら 1 セッション 1 回だけ画像生成案内を inject
+  const geminiNoticedRef = useRef(false);
+  useEffect(() => {
+    if (!secretStatus) return;
+    if (!secretStatus.gemini.set && !geminiNoticedRef.current) {
+      geminiNoticedRef.current = true;
+      injectMessage("status", GEMINI_NOTICE);
+    }
+  }, [secretStatus, injectMessage]);
 
   const handleElementSelected = useCallback((context: ElementContext) => {
     setSelectedElement(context);
@@ -195,6 +259,10 @@ export default function App() {
           onHelp={() => setHelpOpen(true)}
           onOpenSiteBrief={() => setSiteBriefModalOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
+          disabledReason={disabledReason}
+          cloudflareReady={cloudflareReady}
+          firebaseReady={firebaseReady}
+          geminiReady={geminiReady}
         />
       </div>
 
@@ -223,6 +291,7 @@ export default function App() {
       <SettingsDialog
         open={settingsOpen}
         opencodeRestarting={opencodeRestarting}
+        mandatory={!openrouterReady}
         onClose={() => setSettingsOpen(false)}
       />
 

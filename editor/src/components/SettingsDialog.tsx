@@ -10,7 +10,11 @@ type Props = {
   open: boolean;
   opencodeRestarting: boolean;
   onClose: () => void;
+  mandatory?: boolean;
 };
+
+const MANDATORY_BANNER =
+  "サイトを作る AI を動かすキーが必要です（OpenRouter）。⚙ 設定から登録してください";
 
 const RESTART_FALLBACK_MS = 3000;
 
@@ -88,6 +92,7 @@ export default function SettingsDialog({
   open,
   opencodeRestarting,
   onClose,
+  mandatory = false,
 }: Props) {
   const { status, loading, saving, deleting, error, refresh, save, remove } =
     useSecrets();
@@ -130,6 +135,12 @@ export default function SettingsDialog({
     onClose();
   }, [dirty, onClose]);
 
+  // Esc / 背景クリックの暗黙 close — mandatory 中は no-op
+  const tryAutoClose = useCallback(() => {
+    if (mandatory) return;
+    closeWithDirtyCheck();
+  }, [mandatory, closeWithDirtyCheck]);
+
   // Esc 処理
   useEffect(() => {
     if (!open) return;
@@ -137,12 +148,12 @@ export default function SettingsDialog({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
-        closeWithDirtyCheck();
+        tryAutoClose();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, closeWithDirtyCheck]);
+  }, [open, tryAutoClose]);
 
   const handleProviderDirty = useCallback(
     (provider: Provider, isDirty: boolean) => {
@@ -203,7 +214,7 @@ export default function SettingsDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={closeWithDirtyCheck}
+      onClick={tryAutoClose}
     >
       <div
         role="dialog"
@@ -225,6 +236,12 @@ export default function SettingsDialog({
             ✕
           </button>
         </div>
+
+        {mandatory && (
+          <div className="mb-3 px-3 py-2 rounded-lg bg-blue-900/40 border border-blue-700/50 text-blue-100 text-xs">
+            {MANDATORY_BANNER}
+          </div>
+        )}
 
         {showRestartBanner && (
           <div className="mb-3 px-3 py-2 rounded-lg bg-amber-700/30 border border-amber-700/50 text-amber-100 text-xs flex items-center gap-2">
@@ -267,6 +284,18 @@ export default function SettingsDialog({
             );
           })}
         </div>
+
+        {mandatory && (
+          <div className="mt-4 text-center">
+            <button
+              type="button"
+              onClick={closeWithDirtyCheck}
+              className="text-xs text-gray-400 hover:text-gray-200 underline"
+            >
+              あとで設定する
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

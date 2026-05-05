@@ -310,6 +310,8 @@ describe("SettingsDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // (mandatory モードのテストは別 describe で扱う — 末尾に追加)
+
   it("opencode_ready (restarting=false transition) clears restart banner", async () => {
     installFetchSequence([
       { body: STATUS_EMPTY },
@@ -348,5 +350,116 @@ describe("SettingsDialog", () => {
     await waitFor(() =>
       expect(screen.queryByText(/AI を再起動しています/)).toBeNull(),
     );
+  });
+});
+
+describe("SettingsDialog mandatory mode (T6/T7a/T7b/T8/T8b)", () => {
+  it("T6: mandatory=true で「あとで設定する」ボタンが表示 + 案内バー表示", async () => {
+    installFetchSequence([{ body: STATUS_EMPTY }]);
+    render(
+      <SettingsDialog
+        open
+        opencodeRestarting={false}
+        mandatory
+        onClose={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByText("OpenRouter"));
+    expect(screen.getByRole("button", { name: "あとで設定する" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        /サイトを作る AI を動かすキーが必要です（OpenRouter）。⚙ 設定から登録してください/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("mandatory=false (default) では「あとで設定する」も案内バーも表示されない", async () => {
+    installFetchSequence([{ body: STATUS_EMPTY }]);
+    render(
+      <SettingsDialog
+        open
+        opencodeRestarting={false}
+        onClose={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByText("OpenRouter"));
+    expect(screen.queryByRole("button", { name: "あとで設定する" })).toBeNull();
+    expect(
+      screen.queryByText(
+        /サイトを作る AI を動かすキーが必要です（OpenRouter）。⚙ 設定から登録してください/,
+      ),
+    ).toBeNull();
+  });
+
+  it("T7a: mandatory=true で Esc を押しても onClose が呼ばれない", async () => {
+    installFetchSequence([{ body: STATUS_EMPTY }]);
+    const onClose = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        opencodeRestarting={false}
+        mandatory
+        onClose={onClose}
+      />,
+    );
+    await waitFor(() => screen.getByText("OpenRouter"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("T7b: mandatory=true で背景クリックしても onClose が呼ばれない", async () => {
+    installFetchSequence([{ body: STATUS_EMPTY }]);
+    const onClose = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        opencodeRestarting={false}
+        mandatory
+        onClose={onClose}
+      />,
+    );
+    await waitFor(() => screen.getByText("OpenRouter"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    // 背景 (overlay) は dialog の親 (fixed inset-0) — dialog 自身ではなく外側をクリック
+    const dialog = screen.getByRole("dialog");
+    const overlay = dialog.parentElement!;
+    await user.click(overlay);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("T8: mandatory=true で「あとで設定する」をクリックすると onClose が呼ばれる", async () => {
+    installFetchSequence([{ body: STATUS_EMPTY }]);
+    const onClose = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        opencodeRestarting={false}
+        mandatory
+        onClose={onClose}
+      />,
+    );
+    await waitFor(() => screen.getByText("OpenRouter"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByRole("button", { name: "あとで設定する" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("T8b: mandatory=true でも ✕ クリックで onClose が呼ばれる (案 A: ✕ 残置)", async () => {
+    installFetchSequence([{ body: STATUS_EMPTY }]);
+    const onClose = vi.fn();
+    render(
+      <SettingsDialog
+        open
+        opencodeRestarting={false}
+        mandatory
+        onClose={onClose}
+      />,
+    );
+    await waitFor(() => screen.getByText("OpenRouter"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const closeBtn = screen.getByRole("button", { name: "閉じる" });
+    await user.click(closeBtn);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

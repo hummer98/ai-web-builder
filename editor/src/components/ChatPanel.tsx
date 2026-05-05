@@ -18,7 +18,14 @@ type Props = {
   onHelp: () => void;
   onOpenSiteBrief: () => void;
   onOpenSettings: () => void;
+  disabledReason?: string | null;
+  cloudflareReady?: boolean;
+  firebaseReady?: boolean;
+  geminiReady?: boolean;
 };
+
+const DEPLOY_BLOCKED_MESSAGE =
+  "公開するには Cloudflare か Firebase のキーが必要です。⚙ 設定から登録してください";
 
 export default function ChatPanel({
   connected,
@@ -30,7 +37,11 @@ export default function ChatPanel({
   onHelp,
   onOpenSiteBrief,
   onOpenSettings,
+  disabledReason,
+  cloudflareReady,
+  firebaseReady,
 }: Props) {
+  const guarded = !!disabledReason;
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -309,13 +320,13 @@ export default function ChatPanel({
   }
 
   function handleUndo() {
-    if (!connected || undoing) return;
+    if (!connected || undoing || guarded) return;
     setUndoing(true);
     onSend({ type: "undo" });
   }
 
   function handleHistory() {
-    if (!connected) return;
+    if (!connected || guarded) return;
     setHistoryOpen(true);
     setHistoryLoading(true);
     setCommits([]);
@@ -326,6 +337,19 @@ export default function ChatPanel({
     if (!connected) return;
     setHistoryOpen(false);
     onSend({ type: "revert", hash });
+  }
+
+  function handleDeploy() {
+    if (guarded) return;
+    if (cloudflareReady === false && firebaseReady === false) {
+      setChat((prev) => [
+        ...prev,
+        { role: "status", content: DEPLOY_BLOCKED_MESSAGE },
+      ]);
+      onOpenSettings();
+      return;
+    }
+    onSend({ type: "deploy" });
   }
 
   return (
@@ -363,7 +387,7 @@ export default function ChatPanel({
         </button>
         <button
           onClick={handleHistory}
-          disabled={!connected}
+          disabled={!connected || guarded}
           className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           title="変更履歴を表示"
         >
@@ -372,7 +396,7 @@ export default function ChatPanel({
         </button>
         <button
           onClick={handleUndo}
-          disabled={!connected || undoing}
+          disabled={!connected || undoing || guarded}
           className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
           title="直前の変更を元に戻す"
         >
@@ -389,8 +413,8 @@ export default function ChatPanel({
           )}
         </button>
         <button
-          onClick={() => onSend({ type: "deploy" })}
-          disabled={!connected || deploying}
+          onClick={handleDeploy}
+          disabled={!connected || deploying || guarded}
           className="bg-emerald-600 text-white rounded-lg px-3 py-1 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
         >
           {deploying ? (
@@ -531,7 +555,10 @@ export default function ChatPanel({
       )}
 
       {/* 入力フォーム */}
-      <form onSubmit={handleSubmit} className="p-3 border-t border-gray-700">
+      <form
+        onSubmit={handleSubmit}
+        className={`p-3 border-t border-gray-700 ${guarded ? "opacity-50" : ""}`}
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -546,7 +573,7 @@ export default function ChatPanel({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={!connected}
+            disabled={!connected || guarded}
             className="bg-gray-700 text-gray-300 rounded-lg px-2.5 py-2 text-sm hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
             title="画像を添付"
           >
@@ -569,18 +596,20 @@ export default function ChatPanel({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              selectedElement
-                ? `${selectedElement.componentTree[0]?.name ?? selectedElement.tag} への指示...`
-                : pendingImage
-                  ? "画像の使い方を指示..."
-                  : "指示を入力..."
+              guarded
+                ? (disabledReason ?? "")
+                : selectedElement
+                  ? `${selectedElement.componentTree[0]?.name ?? selectedElement.tag} への指示...`
+                  : pendingImage
+                    ? "画像の使い方を指示..."
+                    : "指示を入力..."
             }
-            disabled={!connected}
+            disabled={!connected || guarded}
             className="flex-1 bg-gray-800 text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 placeholder-gray-500"
           />
           <button
             type="submit"
-            disabled={!connected || (!input.trim() && !pendingImage)}
+            disabled={!connected || guarded || (!input.trim() && !pendingImage)}
             className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             送信
