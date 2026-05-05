@@ -3,6 +3,7 @@ import ChatPanel from "./components/ChatPanel";
 import type { ChatMessage } from "./components/ChatPanel";
 import PreviewPanel from "./components/PreviewPanel";
 import type { ElementContext } from "./components/PreviewPanel";
+import SettingsDialog from "./components/SettingsDialog";
 import SiteBriefModal from "./components/SiteBriefModal";
 import SiteBriefMiniModal from "./components/SiteBriefMiniModal";
 import { useWebSocket } from "./hooks/useWebSocket";
@@ -29,6 +30,10 @@ export default function App() {
   const [siteBriefMiniOpen, setSiteBriefMiniOpen] = useState(false);
   const [siteBriefSaving, setSiteBriefSaving] = useState(false);
   const siteBriefRequestedRef = useRef(false);
+
+  // Settings (BYOK access keys) state
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [opencodeRestarting, setOpencodeRestarting] = useState(false);
 
   // ? キーでヘルプを開く、Escape で閉じる
   useEffect(() => {
@@ -76,6 +81,10 @@ export default function App() {
           if (siteBriefIsEmpty) setSiteBriefMiniOpen(true);
         } else if (m.type === "error" && siteBriefSaving) {
           setSiteBriefSaving(false);
+        } else if (m.type === "system" && m.event === "opencode_restarting") {
+          setOpencodeRestarting(true);
+        } else if (m.type === "system" && m.event === "opencode_ready") {
+          setOpencodeRestarting(false);
         }
       }
     }
@@ -185,6 +194,7 @@ export default function App() {
           injectedMessages={injectedMessages}
           onHelp={() => setHelpOpen(true)}
           onOpenSiteBrief={() => setSiteBriefModalOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       </div>
 
@@ -207,6 +217,13 @@ export default function App() {
         saving={siteBriefSaving}
         onClose={() => setSiteBriefModalOpen(false)}
         onSave={handleSiteBriefSave}
+      />
+
+      {/* アクセスキー (BYOK) 設定モーダル */}
+      <SettingsDialog
+        open={settingsOpen}
+        opencodeRestarting={opencodeRestarting}
+        onClose={() => setSettingsOpen(false)}
       />
 
       {/* サイト情報 ミニモーダル (1 行ヒアリング) */}

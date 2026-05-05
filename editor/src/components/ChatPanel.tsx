@@ -17,6 +17,7 @@ type Props = {
   injectedMessages?: ChatMessage[];
   onHelp: () => void;
   onOpenSiteBrief: () => void;
+  onOpenSettings: () => void;
 };
 
 export default function ChatPanel({
@@ -28,6 +29,7 @@ export default function ChatPanel({
   injectedMessages,
   onHelp,
   onOpenSiteBrief,
+  onOpenSettings,
 }: Props) {
   const [input, setInput] = useState("");
   const [chat, setChat] = useState<ChatMessage[]>([]);
@@ -349,6 +351,15 @@ export default function ChatPanel({
         >
           <span>?</span>
           使い方
+        </button>
+        <button
+          onClick={onOpenSettings}
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
+          title="アクセスキーの設定"
+          aria-label="アクセスキーの設定"
+        >
+          <span>⚙</span>
+          設定
         </button>
         <button
           onClick={handleHistory}
