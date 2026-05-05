@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "./logger.js";
 import { createVerifier, type Verifier } from "./auth.js";
 import { sanitizeError } from "./utils.js";
+import { createSecretsRouter } from "./api-secrets.js";
 
 const log = createLogger("agent-server");
 
@@ -154,6 +155,9 @@ export function createApp(opts: CreateAppOpts = {}) {
 
   // Health check
   app.get("/health", (c) => c.json({ status: "ok" }));
+
+  // BYOK: シークレット管理 API (T017)
+  app.route("/api/secrets", createSecretsRouter());
 
   // 画像アップロード
   app.post("/api/upload", async (c) => {
