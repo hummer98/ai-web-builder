@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 const PREVIEW_URL =
   import.meta.env.DEV
@@ -32,11 +32,46 @@ type Props = {
   refreshKey?: number; // increment to force iframe reload
 };
 
+// T024: 親側で iframe の URL スタックを自前管理する。
+// joint session history を回避するため iframe.contentWindow.history は触らない。
+type HistoryState = { stack: string[]; index: number };
+type HistoryAction =
+  | { type: "push"; url: string }
+  | { type: "go"; index: number };
+
+function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
+  switch (action.type) {
+    case "push": {
+      // 中間にいるとき (forward 履歴あり) に新規 nav が来たら以降を破棄
+      const truncated = state.stack.slice(0, state.index + 1);
+      // 同一 URL 連打は無視 (pushState の重複や reload 由来の nav 対策)
+      if (truncated[truncated.length - 1] === action.url) return state;
+      truncated.push(action.url);
+      return { stack: truncated, index: truncated.length - 1 };
+    }
+    case "go": {
+      if (action.index < 0 || action.index >= state.stack.length) return state;
+      return { ...state, index: action.index };
+    }
+  }
+}
+
 export default function PreviewPanel({ onElementSelected, onEditText, onReplaceImage, onDeleteElement, inspectRequested, refreshKey }: Props) {
   const [sizeIndex, setSizeIndex] = useState(0);
   const [inspectMode, setInspectMode] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const size = SIZES[sizeIndex];
+
+  // 履歴スタックは空配列で開始し、最初の nav 受信で `[url]` を作る。
+  // PREVIEW_URL を初期値にすると iframe からの nav (window.location.href) と
+  // 末尾スラッシュ等の正規化差で重複判定が崩れるリスクを避けるため。
+  const [history, dispatchHistory] = useReducer(historyReducer, {
+    stack: [],
+    index: -1,
+  });
+  // 自前ナビゲーション (←/→/🏠) で iframe.src を書き換えた直後に届く nav は
+  // スタックに積まない。URL 一致で消費する方式。
+  const programmaticUrlRef = useRef<string | null>(null);
 
   // Iframe からの postMessage を受信
   useEffect(() => {
@@ -59,6 +94,17 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
         case "delete-element":
           onDeleteElement?.(data.context);
           break;
+        case "nav": {
+          const url: unknown = data.url;
+          if (typeof url !== "string") break;
+          // 自前ナビゲーション直後の nav は無視 (URL 一致で消費)
+          if (programmaticUrlRef.current === url) {
+            programmaticUrlRef.current = null;
+            break;
+          }
+          dispatchHistory({ type: "push", url });
+          break;
+        }
       }
     }
     window.addEventListener("message", handleMessage);
@@ -75,25 +121,31 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
     );
   }, [inspectMode]);
 
-  // iframe 内ブラウザ履歴操作（本番は同一オリジンで動作、ローカル開発はクロスオリジンで SecurityError）
-  const goBack = () => {
-    try {
-      iframeRef.current?.contentWindow?.history.back();
-    } catch {
-      // ローカル開発のクロスオリジン SecurityError を握る
-    }
-  };
-  const goForward = () => {
-    try {
-      iframeRef.current?.contentWindow?.history.forward();
-    } catch {
-      // 同上
-    }
-  };
+  // ←/→ は iframe.src 書き換えのみ。joint session history (親ウィンドウの履歴) を触らない。
+  const goBack = useCallback(() => {
+    if (history.index <= 0) return;
+    const nextIndex = history.index - 1;
+    const targetUrl = history.stack[nextIndex];
+    programmaticUrlRef.current = targetUrl;
+    if (iframeRef.current) iframeRef.current.src = targetUrl;
+    dispatchHistory({ type: "go", index: nextIndex });
+  }, [history.index, history.stack]);
+
+  const goForward = useCallback(() => {
+    if (history.index >= history.stack.length - 1) return;
+    const nextIndex = history.index + 1;
+    const targetUrl = history.stack[nextIndex];
+    programmaticUrlRef.current = targetUrl;
+    if (iframeRef.current) iframeRef.current.src = targetUrl;
+    dispatchHistory({ type: "go", index: nextIndex });
+  }, [history.index, history.stack]);
+
   const goHome = () => {
-    if (iframeRef.current) {
-      iframeRef.current.src = PREVIEW_URL;
-    }
+    if (!iframeRef.current) return;
+    // 自前ナビゲーションとして PREVIEW_URL に飛ばす。
+    // 続いて iframe から届く nav は programmaticUrlRef で吸収される。
+    programmaticUrlRef.current = PREVIEW_URL;
+    iframeRef.current.src = PREVIEW_URL;
   };
 
   // 親からの inspect トグル要求
@@ -112,21 +164,30 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
     }
   }, [refreshKey]);
 
+  const backDisabled = history.index <= 0;
+  const forwardDisabled = history.index >= history.stack.length - 1;
+
   return (
     <div className="flex flex-col h-full bg-gray-800">
       {/* ツールバー */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-900">
         <button
           onClick={goBack}
+          disabled={backDisabled}
           aria-label="戻る"
-          className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+          className={`text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 ${
+            backDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-600"
+          }`}
         >
           ←
         </button>
         <button
           onClick={goForward}
+          disabled={forwardDisabled}
           aria-label="進む"
-          className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+          className={`text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 ${
+            forwardDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-600"
+          }`}
         >
           →
         </button>

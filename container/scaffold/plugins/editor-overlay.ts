@@ -436,5 +436,41 @@ function clearSemanticLabels() {
   labelEls = [];
 }
 
+// ---------- ナビゲーション通知 (T024) ----------
+// 親側で URL スタックを管理する都合上、iframe 側のページ遷移を毎回通知する。
+// 子 iframe の history API は触らない方針 (joint session history が親も巻き戻すため)。
+function notifyNav() {
+  try {
+    window.parent.postMessage(
+      { type: 'nav', url: window.location.href },
+      __PARENT_ORIGIN__
+    );
+  } catch (_) { /* ignore */ }
+}
+
+// 初期表示
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', notifyNav, { once: true });
+} else {
+  notifyNav();
+}
+
+// SPA: pushState / replaceState は popstate を発火しないのでフックする
+const _push = history.pushState;
+history.pushState = function() {
+  const ret = _push.apply(this, arguments);
+  notifyNav();
+  return ret;
+};
+const _replace = history.replaceState;
+history.replaceState = function() {
+  const ret = _replace.apply(this, arguments);
+  notifyNav();
+  return ret;
+};
+
+// ブラウザ側 back/forward (iframe 内のキー操作等で発火しうる)
+window.addEventListener('popstate', notifyNav);
+
 // 初期状態: インスペクトモードOFF
 `;
