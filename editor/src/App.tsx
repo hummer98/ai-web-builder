@@ -8,6 +8,7 @@ import SiteBriefModal from "./components/SiteBriefModal";
 import SiteBriefMiniModal from "./components/SiteBriefMiniModal";
 import { useSecrets } from "./hooks/useSecrets";
 import { useWebSocket } from "./hooks/useWebSocket";
+import type { Commit } from "./types/ws-outbound";
 
 const BYOK_DISABLED_REASON =
   "サイトを作る AI を動かすキーが必要です（OpenRouter）。⚙ 設定から登録してください";
@@ -17,6 +18,9 @@ const SECRETS_ERROR_REASON =
 const WS_DISCONNECTED_REASON = "サーバーに接続中…";
 const GEMINI_NOTICE =
   "画像を作る機能を使うには「Gemini」のキーが必要です（任意）";
+
+const DEPLOY_BLOCKED_MESSAGE =
+  "公開するには Cloudflare か Firebase のキーが必要です。⚙ 設定から登録してください";
 
 const WS_URL = import.meta.env.DEV
   ? `ws://${window.location.hostname}:8080/ws`
@@ -44,6 +48,13 @@ export default function App() {
   // Settings (BYOK access keys) state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [opencodeRestarting, setOpencodeRestarting] = useState(false);
+
+  // T025: 持ち上げた state
+  const [deploying, setDeploying] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [commits, setCommits] = useState<Commit[]>([]);
 
   // BYOK status
   const {
@@ -111,7 +122,11 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // AI 応答完了時にプレビューを自動 reload + site-brief / site-init を反映
+  const injectMessage = useCallback((role: ChatMessage["role"], content: string) => {
+    setInjectedMessages((prev) => [...prev, { role, content }]);
+  }, []);
+
+  // AI 応答完了時にプレビューを自動 reload + site-brief / site-init / deploy / git / history を反映
   useEffect(() => {
     if (messages.length > prevMessagesLen.current) {
       const newMessages = messages.slice(prevMessagesLen.current);
@@ -140,10 +155,32 @@ export default function App() {
         } else if (m.type === "system" && m.event === "opencode_ready") {
           setOpencodeRestarting(false);
         }
+
+        // T025: deploy / git / history / error の state 管理を App 側で担う
+        if (m.type === "status" && m.message === "deploying") {
+          setDeploying(true);
+        } else if (m.type === "deploy") {
+          setDeploying(false);
+          if (m.success) {
+            injectMessage("assistant", `公開しました!\n${m.url ?? ""}`);
+          } else {
+            injectMessage("assistant", `公開に失敗しました: ${m.error ?? "不明なエラー"}`);
+          }
+        } else if (m.type === "git") {
+          setUndoing(false);
+          injectMessage("status", m.message ?? "");
+        } else if (m.type === "history") {
+          setHistoryLoading(false);
+          setCommits(m.commits ?? []);
+        } else if (m.type === "error") {
+          setUndoing(false);
+          setHistoryLoading(false);
+          setDeploying(false);
+        }
       }
     }
     prevMessagesLen.current = messages.length;
-  }, [messages, siteBriefIsEmpty, siteBriefSaving]);
+  }, [messages, siteBriefIsEmpty, siteBriefSaving, injectMessage]);
 
   // 接続成立後に SITE_BRIEF を 1 度だけ取得
   useEffect(() => {
@@ -161,10 +198,6 @@ export default function App() {
     },
     [send],
   );
-
-  const injectMessage = useCallback((role: ChatMessage["role"], content: string) => {
-    setInjectedMessages((prev) => [...prev, { role, content }]);
-  }, []);
 
   // Gemini 未登録なら 1 セッション 1 回だけ画像生成案内を inject
   const geminiNoticedRef = useRef(false);
@@ -245,6 +278,37 @@ export default function App() {
     [send, injectMessage],
   );
 
+  // T025: handlers
+  const handleDeploy = useCallback(() => {
+    if (!connected || deploying || disabledReason) return;
+    if (cloudflareReady === false && firebaseReady === false) {
+      injectMessage("status", DEPLOY_BLOCKED_MESSAGE);
+      setSettingsOpen(true);
+      return;
+    }
+    send({ type: "deploy" });
+  }, [connected, deploying, disabledReason, cloudflareReady, firebaseReady, injectMessage, send]);
+
+  const handleUndo = useCallback(() => {
+    if (!connected || undoing || disabledReason) return;
+    setUndoing(true);
+    send({ type: "undo" });
+  }, [connected, undoing, disabledReason, send]);
+
+  const handleHistory = useCallback(() => {
+    if (!connected || disabledReason) return;
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    setCommits([]);
+    send({ type: "history" });
+  }, [connected, disabledReason, send]);
+
+  const handleRevert = useCallback((hash: string) => {
+    if (!connected) return;
+    setHistoryOpen(false);
+    send({ type: "revert", hash });
+  }, [connected, send]);
+
   return (
     <div className="h-screen flex bg-gray-900">
       {/* 左: チャットパネル */}
@@ -256,13 +320,7 @@ export default function App() {
           selectedElement={selectedElement}
           onClearElement={() => setSelectedElement(null)}
           injectedMessages={injectedMessages}
-          onHelp={() => setHelpOpen(true)}
-          onOpenSiteBrief={() => setSiteBriefModalOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
           disabledReason={disabledReason}
-          cloudflareReady={cloudflareReady}
-          firebaseReady={firebaseReady}
-          geminiReady={geminiReady}
         />
       </div>
 
@@ -275,6 +333,16 @@ export default function App() {
           onDeleteElement={handleDeleteElement}
           inspectRequested={inspectRequested}
           refreshKey={previewRefreshKey}
+          connected={connected}
+          disabledReason={disabledReason}
+          onOpenSiteBrief={() => setSiteBriefModalOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenHelp={() => setHelpOpen(true)}
+          onOpenHistory={handleHistory}
+          onUndo={handleUndo}
+          onDeploy={handleDeploy}
+          undoing={undoing}
+          deploying={deploying}
         />
       </div>
 
@@ -307,6 +375,69 @@ export default function App() {
           setSiteBriefModalOpen(true);
         }}
       />
+
+      {/* T025: 履歴モーダル (fixed inset-0 で画面全体に重なる) */}
+      {historyOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setHistoryOpen(false)}
+        >
+          <div
+            className="bg-gray-800 rounded-xl w-[90%] max-w-md max-h-[70%] flex flex-col shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <span className="text-sm font-medium">変更履歴</span>
+              <button
+                onClick={() => setHistoryOpen(false)}
+                className="text-gray-400 hover:text-gray-200 text-lg leading-none"
+              >
+                x
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
+                  <div className="animate-pulse mr-2">●</div>
+                  履歴を読み込み中...
+                </div>
+              ) : commits.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-8">履歴がありません</p>
+              ) : (
+                <ul className="space-y-1">
+                  {commits.map((c, i) => (
+                    <li
+                      key={c.hash}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-700/50 text-sm"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-gray-200 truncate">{c.message}</div>
+                        <div className="text-gray-500 text-xs">
+                          {new Date(c.date).toLocaleString("ja-JP", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          <span className="ml-2 text-gray-600">{c.hash}</span>
+                        </div>
+                      </div>
+                      {i > 0 && (
+                        <button
+                          onClick={() => handleRevert(c.hash)}
+                          className="shrink-0 bg-gray-600 text-gray-200 rounded px-2 py-1 text-xs hover:bg-gray-500"
+                        >
+                          戻す
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ヘルプモーダル */}
       {helpOpen && (

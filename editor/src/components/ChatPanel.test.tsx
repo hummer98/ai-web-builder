@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
 // react-markdown はルート node_modules には入っていないため、テストでは素通しの mock に置き換える
 vi.mock("react-markdown", () => ({
@@ -14,14 +13,9 @@ const BYOK_REASON =
   "サイトを作る AI を動かすキーが必要です（OpenRouter）。⚙ 設定から登録してください";
 const LOADING_REASON = "設定を読み込んでいます…";
 const ERROR_REASON = "設定を読み込めませんでした。⚙ 設定から再試行してください";
-const DEPLOY_REASON =
-  "公開するには Cloudflare か Firebase のキーが必要です。⚙ 設定から登録してください";
 
 function renderPanel(overrides: Partial<React.ComponentProps<typeof ChatPanel>> = {}) {
   const onSend = vi.fn();
-  const onOpenSettings = vi.fn();
-  const onOpenSiteBrief = vi.fn();
-  const onHelp = vi.fn();
   const onClearElement = vi.fn();
   const utils = render(
     <ChatPanel
@@ -30,13 +24,10 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof ChatPanel>> 
       onSend={onSend}
       selectedElement={null}
       onClearElement={onClearElement}
-      onHelp={onHelp}
-      onOpenSiteBrief={onOpenSiteBrief}
-      onOpenSettings={onOpenSettings}
       {...overrides}
     />,
   );
-  return { ...utils, onSend, onOpenSettings, onOpenSiteBrief, onHelp, onClearElement };
+  return { ...utils, onSend, onClearElement };
 }
 
 beforeEach(() => {
@@ -78,67 +69,5 @@ describe("ChatPanel disabledReason gate (T1/T1a/T1b/T2)", () => {
     renderPanel();
     const input = screen.getByPlaceholderText("指示を入力...") as HTMLInputElement;
     expect(input.disabled).toBe(false);
-  });
-});
-
-describe("ChatPanel deploy guard (T9/T10)", () => {
-  it("T9: cloudflare/firebase 両方未登録で公開ボタン → onOpenSettings 呼ばれ onSend({type:'deploy'}) は呼ばれない + status メッセージ追加", async () => {
-    const { onSend, onOpenSettings } = renderPanel({
-      cloudflareReady: false,
-      firebaseReady: false,
-    });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const deployBtn = screen.getByRole("button", { name: "公開" });
-    await user.click(deployBtn);
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
-    const deployCall = onSend.mock.calls.find(
-      (c) => (c[0] as { type: string }).type === "deploy",
-    );
-    expect(deployCall).toBeUndefined();
-    expect(
-      screen.getByText(/公開するには Cloudflare か Firebase のキーが必要です/),
-    ).toBeTruthy();
-  });
-
-  it("T10: cloudflare 登録済みなら通常 deploy 送信", async () => {
-    const { onSend, onOpenSettings } = renderPanel({
-      cloudflareReady: true,
-      firebaseReady: false,
-    });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    await user.click(screen.getByRole("button", { name: "公開" }));
-    expect(onSend).toHaveBeenCalledWith({ type: "deploy" });
-    expect(onOpenSettings).not.toHaveBeenCalled();
-  });
-
-  it("T10b: firebase 登録済みなら通常 deploy 送信", async () => {
-    const { onSend } = renderPanel({
-      cloudflareReady: false,
-      firebaseReady: true,
-    });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    await user.click(screen.getByRole("button", { name: "公開" }));
-    expect(onSend).toHaveBeenCalledWith({ type: "deploy" });
-  });
-
-  it("T10c: cloudflareReady/firebaseReady 未指定 (= undefined) なら従来動作 (deploy 送信)", async () => {
-    const { onSend } = renderPanel();
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    await user.click(screen.getByRole("button", { name: "公開" }));
-    expect(onSend).toHaveBeenCalledWith({ type: "deploy" });
-  });
-
-  it("T9b: disabledReason 文字列で公開ボタンも disabled", () => {
-    renderPanel({ disabledReason: BYOK_REASON });
-    const deployBtn = screen.getByRole("button", { name: "公開" }) as HTMLButtonElement;
-    expect(deployBtn.disabled).toBe(true);
-  });
-});
-
-describe("ChatPanel deploy reason copy", () => {
-  it("DEPLOY_REASON の文言と一致する", () => {
-    expect(DEPLOY_REASON).toBe(
-      "公開するには Cloudflare か Firebase のキーが必要です。⚙ 設定から登録してください",
-    );
   });
 });

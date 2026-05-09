@@ -15,17 +15,8 @@ type Props = {
   selectedElement: ElementContext | null;
   onClearElement: () => void;
   injectedMessages?: ChatMessage[];
-  onHelp: () => void;
-  onOpenSiteBrief: () => void;
-  onOpenSettings: () => void;
   disabledReason?: string | null;
-  cloudflareReady?: boolean;
-  firebaseReady?: boolean;
-  geminiReady?: boolean;
 };
-
-const DEPLOY_BLOCKED_MESSAGE =
-  "公開するには Cloudflare か Firebase のキーが必要です。⚙ 設定から登録してください";
 
 export default function ChatPanel({
   connected,
@@ -34,12 +25,7 @@ export default function ChatPanel({
   selectedElement,
   onClearElement,
   injectedMessages,
-  onHelp,
-  onOpenSiteBrief,
-  onOpenSettings,
   disabledReason,
-  cloudflareReady,
-  firebaseReady,
 }: Props) {
   const guarded = !!disabledReason;
   const [input, setInput] = useState("");
@@ -47,8 +33,6 @@ export default function ChatPanel({
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
-  const [deploying, setDeploying] = useState(false);
-  const [undoing, setUndoing] = useState(false);
   const [pendingImage, setPendingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -56,9 +40,6 @@ export default function ChatPanel({
   const processedRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [commits, setCommits] = useState<{ hash: string; message: string; date: string }[]>([]);
 
   // WS メッセージをチャット履歴に変換
   useEffect(() => {
@@ -70,12 +51,10 @@ export default function ChatPanel({
 
       switch (msg.type) {
         case "status":
-          if (msg.message === "deploying") {
-            setDeploying(true);
-          } else {
-            setLoading(true);
-            setStatusText(msg.message ?? "thinking");
-          }
+          // 'deploying' は App 側で扱うので無視
+          if (msg.message === "deploying") break;
+          setLoading(true);
+          setStatusText(msg.message ?? "thinking");
           break;
 
         case "stream":
@@ -115,40 +94,6 @@ export default function ChatPanel({
           setStatusText(null);
           break;
 
-        case "deploy":
-          setDeploying(false);
-          if (msg.success) {
-            setChat((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content: `公開しました!\n${msg.url ?? ""}`,
-              },
-            ]);
-          } else {
-            setChat((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content: `公開に失敗しました: ${msg.error ?? "不明なエラー"}`,
-              },
-            ]);
-          }
-          break;
-
-        case "git":
-          setChat((prev) => [
-            ...prev,
-            { role: "status", content: msg.message ?? "" },
-          ]);
-          setUndoing(false);
-          break;
-
-        case "history":
-          setHistoryLoading(false);
-          setCommits(msg.commits ?? []);
-          break;
-
         case "error":
           setChat((prev) => [
             ...prev,
@@ -156,8 +101,6 @@ export default function ChatPanel({
           ]);
           setLoading(false);
           setStreaming(false);
-          setUndoing(false);
-          setHistoryLoading(false);
           setStatusText(null);
           break;
       }
@@ -319,113 +262,14 @@ export default function ChatPanel({
     onClearElement();
   }
 
-  function handleUndo() {
-    if (!connected || undoing || guarded) return;
-    setUndoing(true);
-    onSend({ type: "undo" });
-  }
-
-  function handleHistory() {
-    if (!connected || guarded) return;
-    setHistoryOpen(true);
-    setHistoryLoading(true);
-    setCommits([]);
-    onSend({ type: "history" });
-  }
-
-  function handleRevert(hash: string) {
-    if (!connected) return;
-    setHistoryOpen(false);
-    onSend({ type: "revert", hash });
-  }
-
-  function handleDeploy() {
-    if (guarded) return;
-    if (cloudflareReady === false && firebaseReady === false) {
-      setChat((prev) => [
-        ...prev,
-        { role: "status", content: DEPLOY_BLOCKED_MESSAGE },
-      ]);
-      onOpenSettings();
-      return;
-    }
-    onSend({ type: "deploy" });
-  }
-
   return (
     <div className="relative flex flex-col h-full bg-gray-900 text-gray-100">
-      {/* ヘッダー */}
+      {/* ヘッダー: 接続インジケータ + タイトルのみ */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-700">
         <div
           className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
         />
         <span className="text-sm font-medium flex-1">AI Web Builder</span>
-        <button
-          onClick={onOpenSiteBrief}
-          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
-          title="サイト情報を編集"
-        >
-          <span>📝</span>
-          サイト情報
-        </button>
-        <button
-          onClick={onHelp}
-          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
-          title="使い方 (?)"
-        >
-          <span>?</span>
-          使い方
-        </button>
-        <button
-          onClick={onOpenSettings}
-          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
-          title="アクセスキーの設定"
-          aria-label="アクセスキーの設定"
-        >
-          <span>⚙</span>
-          設定
-        </button>
-        <button
-          onClick={handleHistory}
-          disabled={!connected || guarded}
-          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          title="変更履歴を表示"
-        >
-          <span>&#128203;</span>
-          履歴
-        </button>
-        <button
-          onClick={handleUndo}
-          disabled={!connected || undoing || guarded}
-          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          title="直前の変更を元に戻す"
-        >
-          {undoing ? (
-            <>
-              <span className="animate-spin">&#8635;</span>
-              戻し中...
-            </>
-          ) : (
-            <>
-              <span>&#8630;</span>
-              元に戻す
-            </>
-          )}
-        </button>
-        <button
-          onClick={handleDeploy}
-          disabled={!connected || deploying || guarded}
-          className="bg-emerald-600 text-white rounded-lg px-3 py-1 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-        >
-          {deploying ? (
-            <>
-              <span className="animate-spin inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full" />
-              公開中...
-            </>
-          ) : (
-            "公開"
-          )}
-        </button>
       </div>
 
       {/* メッセージ一覧 */}
@@ -616,65 +460,6 @@ export default function ChatPanel({
           </button>
         </div>
       </form>
-
-      {/* 履歴モーダル */}
-      {historyOpen && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-xl w-[90%] max-w-md max-h-[70%] flex flex-col shadow-2xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-              <span className="text-sm font-medium">変更履歴</span>
-              <button
-                onClick={() => setHistoryOpen(false)}
-                className="text-gray-400 hover:text-gray-200 text-lg leading-none"
-              >
-                x
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2">
-              {historyLoading ? (
-                <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
-                  <div className="animate-pulse mr-2">●</div>
-                  履歴を読み込み中...
-                </div>
-              ) : commits.length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-8">
-                  履歴がありません
-                </p>
-              ) : (
-                <ul className="space-y-1">
-                  {commits.map((c, i) => (
-                    <li
-                      key={c.hash}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-700/50 text-sm"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-gray-200 truncate">{c.message}</div>
-                        <div className="text-gray-500 text-xs">
-                          {new Date(c.date).toLocaleString("ja-JP", {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                          <span className="ml-2 text-gray-600">{c.hash}</span>
-                        </div>
-                      </div>
-                      {i > 0 && (
-                        <button
-                          onClick={() => handleRevert(c.hash)}
-                          className="shrink-0 bg-gray-600 text-gray-200 rounded px-2 py-1 text-xs hover:bg-gray-500"
-                        >
-                          戻す
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

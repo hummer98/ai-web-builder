@@ -30,6 +30,18 @@ type Props = {
   onDeleteElement?: (context: ElementContext) => void;
   inspectRequested?: number; // increment to toggle inspect from parent
   refreshKey?: number; // increment to force iframe reload
+
+  // T025: ヘッダー集約
+  connected?: boolean;
+  disabledReason?: string | null;
+  onOpenSiteBrief?: () => void;
+  onOpenSettings?: () => void;
+  onOpenHelp?: () => void;
+  onOpenHistory?: () => void;
+  onUndo?: () => void;
+  onDeploy?: () => void;
+  undoing?: boolean;
+  deploying?: boolean;
 };
 
 // T024: 親側で iframe の URL スタックを自前管理する。
@@ -56,11 +68,30 @@ function historyReducer(state: HistoryState, action: HistoryAction): HistoryStat
   }
 }
 
-export default function PreviewPanel({ onElementSelected, onEditText, onReplaceImage, onDeleteElement, inspectRequested, refreshKey }: Props) {
+export default function PreviewPanel({
+  onElementSelected,
+  onEditText,
+  onReplaceImage,
+  onDeleteElement,
+  inspectRequested,
+  refreshKey,
+  connected = false,
+  disabledReason = null,
+  onOpenSiteBrief,
+  onOpenSettings,
+  onOpenHelp,
+  onOpenHistory,
+  onUndo,
+  onDeploy,
+  undoing = false,
+  deploying = false,
+}: Props) {
   const [sizeIndex, setSizeIndex] = useState(0);
   const [inspectMode, setInspectMode] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const size = SIZES[sizeIndex];
+
+  const guarded = !!disabledReason;
 
   // 履歴スタックは空配列で開始し、最初の nav 受信で `[url]` を作る。
   // PREVIEW_URL を初期値にすると iframe からの nav (window.location.href) と
@@ -170,7 +201,8 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
   return (
     <div className="flex flex-col h-full bg-gray-800">
       {/* ツールバー */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-900">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-700 bg-gray-900">
+        {/* ナビゲーション */}
         <button
           onClick={goBack}
           disabled={backDisabled}
@@ -198,7 +230,19 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
         >
           🏠
         </button>
+
+        {/* T025: Reload は 🏠 の右隣、アイコン化 (↻ U+21BB) */}
+        <button
+          onClick={() => iframeRef.current?.contentWindow?.location.reload()}
+          aria-label="再読み込み"
+          title="再読み込み"
+          className="text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+        >
+          ↻
+        </button>
+
         <div className="w-px h-4 bg-gray-600" />
+
         <button
           onClick={toggleInspect}
           className={`text-xs px-3 py-1 rounded font-medium ${
@@ -210,7 +254,9 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
           {inspectMode ? "Inspect ON" : "Inspect"}
           <kbd className="hidden md:inline ml-1 text-[10px] opacity-60 font-mono">⌘I</kbd>
         </button>
+
         <div className="w-px h-4 bg-gray-600" />
+
         {SIZES.map((s, i) => (
           <button
             key={s.label}
@@ -224,11 +270,75 @@ export default function PreviewPanel({ onElementSelected, onEditText, onReplaceI
             {s.label}
           </button>
         ))}
+
+        {/* T025: 元 ChatPanel の 6 ボタンを移動 */}
         <button
-          onClick={() => iframeRef.current?.contentWindow?.location.reload()}
-          className="ml-auto text-xs px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600"
+          onClick={onOpenSiteBrief}
+          title="サイト情報を編集"
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
         >
-          Reload
+          <span>📝</span>
+          サイト情報
+        </button>
+        <button
+          onClick={onOpenHelp}
+          title="使い方 (?)"
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
+        >
+          <span>?</span>
+          使い方
+        </button>
+        <button
+          onClick={onOpenSettings}
+          title="アクセスキーの設定"
+          aria-label="アクセスキーの設定"
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600"
+        >
+          <span>⚙</span>
+          設定
+        </button>
+        <button
+          onClick={onOpenHistory}
+          disabled={!connected || guarded}
+          title="変更履歴を表示"
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span>&#128203;</span>
+          履歴
+        </button>
+        <button
+          onClick={onUndo}
+          disabled={!connected || undoing || guarded}
+          title="直前の変更を元に戻す"
+          className="flex items-center gap-1 bg-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {undoing ? (
+            <>
+              <span className="animate-spin">↻</span>
+              戻し中...
+            </>
+          ) : (
+            <>
+              <span>↶</span>
+              元に戻す
+            </>
+          )}
+        </button>
+
+        {/* 公開: ml-auto で右端固定、emerald 維持 */}
+        <button
+          onClick={onDeploy}
+          disabled={!connected || deploying || guarded}
+          className="ml-auto bg-emerald-600 text-white rounded-lg px-3 py-1 text-xs font-medium hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+        >
+          {deploying ? (
+            <>
+              <span className="animate-spin inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full" />
+              公開中...
+            </>
+          ) : (
+            "公開"
+          )}
         </button>
       </div>
 

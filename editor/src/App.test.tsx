@@ -10,7 +10,11 @@ vi.mock("react-markdown", () => ({
 }));
 
 vi.mock("./components/PreviewPanel", () => ({
-  default: () => <div data-testid="preview-panel-stub" />,
+  default: ({ onOpenSettings }: { onOpenSettings?: () => void }) => (
+    <div data-testid="preview-panel-stub">
+      <button aria-label="アクセスキーの設定" onClick={onOpenSettings}>設定</button>
+    </div>
+  ),
 }));
 
 vi.mock("./components/SiteBriefModal", () => ({
