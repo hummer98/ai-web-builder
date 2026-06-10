@@ -47,6 +47,7 @@ COPY container/instructions/ container/instructions/
 
 # opencode.json 後処理スクリプト（start.sh / site-init.ts 両方から利用）
 COPY container/opencode-postprocess.mjs container/opencode-postprocess.mjs
+COPY container/secrets-reader.mjs container/secrets-reader.mjs
 
 # Scaffold の依存を事前インストール（新規サイト作成時にコピーされる）
 COPY container/scaffold/ container/scaffold/
