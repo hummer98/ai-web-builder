@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import type { WSMessage, WSSendable } from "../hooks/useWebSocket";
 import type { ElementContext } from "./PreviewPanel";
 
@@ -303,6 +304,7 @@ export default function ChatPanel({
             {msg.role === "assistant" ? (
               <div className="markdown-body">
                 <ReactMarkdown
+                  remarkPlugins={[remarkBreaks]}
                   components={{
                     pre: ({ children }) => (
                       <pre className="bg-gray-900 rounded p-2 my-2 overflow-x-auto text-xs">{children}</pre>
