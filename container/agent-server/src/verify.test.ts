@@ -72,6 +72,27 @@ describe("verifyServers", () => {
     }
   });
 
+  it("Hono が接続不可でも ok=true (backend を持たない SPA 構成を許容)", async () => {
+    const r = await verifyServers({
+      viteUrl: `http://127.0.0.1:${viteMock.port}/`,
+      honoUrl: `http://127.0.0.1:1/api/health`, // unreachable
+      timeoutMs: 500,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.reasons).toEqual([]);
+  });
+
+  it("Vite 不可 + Hono 不可なら Vite だけが reason になる", async () => {
+    const r = await verifyServers({
+      viteUrl: `http://127.0.0.1:1/`, // unreachable
+      honoUrl: `http://127.0.0.1:1/api/health`, // unreachable
+      timeoutMs: 500,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reasons).toHaveLength(1);
+    expect(r.reasons[0].startsWith("Vite")).toBe(true);
+  });
+
   it("404 は OK 扱い (サーバーは生きている)", async () => {
     const fourOhFour = createServer((_req, res) => {
       res.statusCode = 404;
