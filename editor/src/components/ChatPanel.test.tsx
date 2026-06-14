@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 
 // react-markdown はルート node_modules には入っていないため、テストでは素通しの mock に置き換える
 vi.mock("react-markdown", () => ({
@@ -69,5 +69,36 @@ describe("ChatPanel disabledReason gate (T1/T1a/T1b/T2)", () => {
     renderPanel();
     const input = screen.getByPlaceholderText("指示を入力...") as HTMLInputElement;
     expect(input.disabled).toBe(false);
+  });
+});
+
+describe("ChatPanel question 連携", () => {
+  it("question メッセージで選択肢が出て、選ぶと answer が送信される", () => {
+    const { onSend } = renderPanel({
+      messages: [
+        {
+          type: "question",
+          requestId: "que_1",
+          questions: [
+            {
+              question: "背景画像をどうしますか？",
+              header: "背景画像",
+              options: [
+                { label: "AIで生成", description: "自動で作る" },
+                { label: "今はやめる", description: "後で決める" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(screen.getByText("背景画像をどうしますか？")).toBeTruthy();
+    fireEvent.click(screen.getByText("AIで生成"));
+    expect(onSend).toHaveBeenCalledWith({
+      type: "answer",
+      requestId: "que_1",
+      answers: [["AIで生成"]],
+    });
   });
 });

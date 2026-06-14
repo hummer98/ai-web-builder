@@ -13,6 +13,23 @@ export type Commit = {
   date: string;
 };
 
+/** opencode の question ツールが提示する 1 つの選択肢。 */
+export type QuestionOption = {
+  label: string;
+  description: string;
+};
+
+/** opencode の question ツールが提示する 1 問。 */
+export type QuestionItem = {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  /** 複数選択可なら true。 */
+  multiple?: boolean;
+  /** 自由入力 (その他) を許すなら true。 */
+  custom?: boolean;
+};
+
 export type WSOutboundMessage =
   | { type: "stream"; delta: string }
   | { type: "stream-end" }
@@ -28,7 +45,8 @@ export type WSOutboundMessage =
   | { type: "warning"; message: string; reasons?: string[] }
   | { type: "site-brief"; content: string; isEmpty: boolean }
   | { type: "site-brief-saved"; hash?: string }
-  | { type: "system"; event: "opencode_restarting" | "opencode_ready" };
+  | { type: "system"; event: "opencode_restarting" | "opencode_ready" }
+  | { type: "question"; requestId: string; questions: QuestionItem[] };
 
 /**
  * 型安全な send ヘルパー。WSOutboundMessage 以外を渡すと TypeScript エラー。

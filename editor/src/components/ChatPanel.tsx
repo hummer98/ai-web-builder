@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import type { WSMessage, WSSendable } from "../hooks/useWebSocket";
 import type { ElementContext } from "./PreviewPanel";
+import QuestionCard, { type PendingQuestion } from "./QuestionCard";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "status";
@@ -34,6 +35,9 @@ export default function ChatPanel({
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
+  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(
+    null
+  );
   const [pendingImage, setPendingImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -103,6 +107,18 @@ export default function ChatPanel({
           setLoading(false);
           setStreaming(false);
           setStatusText(null);
+          break;
+
+        case "question":
+          // opencode が選択肢を出した。回答するまで agent はブロックしているので
+          // loading/streaming を止め (タイムアウト通知を抑制)、カードを表示する。
+          setLoading(false);
+          setStreaming(false);
+          setStatusText(null);
+          setPendingQuestion({
+            requestId: msg.requestId,
+            questions: msg.questions,
+          });
           break;
       }
     }
@@ -218,6 +234,19 @@ export default function ChatPanel({
       console.error("Upload error:", err);
       return null;
     }
+  }
+
+  function handleAnswer(requestId: string, answers: string[][]) {
+    // 選んだ内容をチャットに記録してから回答を送る
+    const summary = answers.map((a) => a.join("・")).filter(Boolean).join(" / ");
+    if (summary) {
+      setChat((prev) => [...prev, { role: "user", content: summary }]);
+    }
+    setPendingQuestion(null);
+    // 回答後は再び agent が動くので考え中表示に戻す
+    setLoading(true);
+    setStatusText("考え中...");
+    onSend({ type: "answer", requestId, answers });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -346,6 +375,9 @@ export default function ChatPanel({
             )}
           </div>
         ))}
+        {pendingQuestion && (
+          <QuestionCard pending={pendingQuestion} onAnswer={handleAnswer} />
+        )}
         {loading && (
           <div className="flex items-center gap-2 text-gray-400 text-sm">
             <div className="animate-pulse">●</div>

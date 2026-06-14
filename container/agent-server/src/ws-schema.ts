@@ -69,6 +69,14 @@ export const SiteBriefSetMsg = z.object({
   content: z.string().max(20000),
 });
 
+// opencode の question ツールへの回答。
+// answers は「質問ごとに選択ラベルの配列」(順序は出題順)。
+export const AnswerMsg = z.object({
+  type: z.literal("answer"),
+  requestId: z.string().min(1).max(200),
+  answers: z.array(z.array(z.string().max(2000)).max(20)).max(20),
+});
+
 // discriminatedUnion 配下の z.object はデフォルトの .strip() でよい。
 // 不正フィールドはスキーマ通過時に剥がされ、ハンドラには到達しないので無害。
 export const WsInbound = z.discriminatedUnion("type", [
@@ -81,6 +89,7 @@ export const WsInbound = z.discriminatedUnion("type", [
   ImportRepoMsg,
   SiteBriefGetMsg,
   SiteBriefSetMsg,
+  AnswerMsg,
 ]);
 
 export type WsInboundMessage = z.infer<typeof WsInbound>;

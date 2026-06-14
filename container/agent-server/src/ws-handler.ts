@@ -25,14 +25,22 @@ import {
 } from "./site-brief.js";
 import { addClient, removeClient } from "./ws-clients.js";
 import { isRestarting } from "./opencode-supervisor.js";
+import { partToLogEntry } from "./opencode-message-log.js";
+import type { QuestionItem } from "./ws-outbound.js";
 
 const RESTARTING_MESSAGE =
   "設定を反映しています。少し待ってからもう一度お試しください。";
 
 const log = createLogger("agent-server");
+// opencode (AI) の応答本文 / tool 実行を永続化する専用ログ
+// (/app/logs/opencode-messages.log)。Machine 再起動後も flyctl logs から追える。
+const messageLog = createLogger("opencode-messages");
 
 export type WsHandlerDeps = {
   opencode: ReturnType<typeof createOpencodeClient>;
+  // opencode HTTP API のベース URL。question reply など SDK 1.2.27 に無い
+  // エンドポイントを raw fetch で叩くために使う (server は 1.17.4)。
+  opencodeUrl: string;
   inactivityTimeoutMs: number;
   workspaceDir: string;
   siteDomain: string;
@@ -55,11 +63,48 @@ export function registerWsHandler(
       let inactivityTimer: InactivityTimer | undefined;
       // session.idle 時の commit メッセージに使うため、直近のユーザー入力を保持
       let lastUserMessage: string | undefined;
+      // opencode-messages.log への二重記録防止 (同じ part.id が複数回 updated される)
+      const loggedParts = new Set<string>();
+
+      const persistMessagePart = (
+        part: Parameters<typeof partToLogEntry>[0]
+      ): void => {
+        const entry = partToLogEntry(part, sessionId as string);
+        if (!entry) return;
+        if (loggedParts.has(entry.partId)) return;
+        loggedParts.add(entry.partId);
+        // kind を msg に、残りを構造化フィールドとして JSON Lines に流す
+        const { kind, ...rest } = entry;
+        messageLog.info(kind, rest);
+      };
 
       const handleEvent = (
         event: Event,
         ws: { send: (data: string) => void }
       ) => {
+        // opencode の question ツール (ユーザーへの選択肢提示)。
+        // SDK 1.2.27 の Event union には無い (server は 1.17.4) ため文字列で拾う。
+        // 回答が返るまで agent はブロックするので、editor に選択肢を転送して
+        // /question/{id}/reply で回答するまで run は idle にならない。
+        if ((event.type as string) === "question.asked") {
+          const props = (event as { properties: unknown }).properties as {
+            id: string;
+            sessionID: string;
+            questions: QuestionItem[];
+          };
+          if (props.sessionID !== sessionId) return;
+          // 回答待ちの間はユーザーの思考時間を奪わないよう inactivity timeout を止める。
+          inactivityTimer?.stop();
+          ws.send(
+            JSON.stringify({
+              type: "question",
+              requestId: props.id,
+              questions: props.questions,
+            })
+          );
+          return;
+        }
+
         switch (event.type) {
           case "message.part.delta": {
             const props = event.properties as {
@@ -78,8 +123,13 @@ export function registerWsHandler(
             const { part } = event.properties;
             if (part.sessionID !== sessionId) return;
 
+            // assistant テキスト本文 / tool 実行結果をサーバー側ログに永続化
+            persistMessagePart(part);
+
             if (part.type === "tool") {
-              if (part.state?.status === "running") {
+              // question ツールの running は question.asked イベントで UI を出すので
+              // ここでの status 表示 (「考え中」化) は抑制する。
+              if (part.state?.status === "running" && part.tool !== "question") {
                 ws.send(JSON.stringify({ type: "status", message: part.tool }));
               } else if (part.state?.status === "completed") {
                 ws.send(JSON.stringify({ type: "file-changed" }));
@@ -94,6 +144,8 @@ export function registerWsHandler(
               inactivityTimer?.stop();
               ws.send(JSON.stringify({ type: "stream-end" }));
               log.info("OpenCode response completed (stream)", { sessionId });
+              // run 完了。次 run は別 part.id になるので dedup set を解放しメモリを抑える。
+              loggedParts.clear();
 
               const messageForCommit = lastUserMessage;
               lastUserMessage = undefined;
@@ -467,6 +519,36 @@ export function registerWsHandler(
                 JSON.stringify({
                   type: "error",
                   message: "サイト情報の保存に失敗しました",
+                })
+              );
+            }
+            return;
+          }
+
+          case "answer": {
+            // opencode の question ツールへの回答。SDK 1.2.27 に該当メソッドが
+            // 無いため raw fetch で /question/{id}/reply を叩く (server 1.17.4)。
+            try {
+              const res = await fetch(
+                `${deps.opencodeUrl}/question/${encodeURIComponent(msg.requestId)}/reply`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ answers: msg.answers }),
+                }
+              );
+              if (!res.ok) {
+                throw new Error(`reply failed: HTTP ${res.status}`);
+              }
+              // 回答送信で agent が再開する。inactivity timeout を再開。
+              inactivityTimer?.reset();
+              log.info("Question reply sent", { requestId: msg.requestId });
+            } catch (err) {
+              log.error("Question reply failed", { error: sanitizeError(err) });
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "回答の送信に失敗しました。もう一度お試しください。",
                 })
               );
             }

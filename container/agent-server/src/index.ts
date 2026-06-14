@@ -38,6 +38,7 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 // ここで 1 度だけ生成して全接続で共有する（SDK はほぼステートレスなので実害なし）
 registerWsHandler(app, upgradeWebSocket, {
   opencode: createOpencodeClient({ baseUrl: OPENCODE_URL }),
+  opencodeUrl: OPENCODE_URL,
   inactivityTimeoutMs: INACTIVITY_TIMEOUT_MS,
   workspaceDir: WORKSPACE_DIR,
   siteDomain: SITE_DOMAIN,

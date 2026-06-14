@@ -51,6 +51,7 @@ async function startServer(
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
   registerWsHandler(app, upgradeWebSocket, {
     opencode: opencode as never,
+    opencodeUrl: "http://opencode.test",
     inactivityTimeoutMs,
     workspaceDir: "/tmp/__aiwb_test_workspace__",
     siteDomain: "test-site",
@@ -475,6 +476,91 @@ describe("registerWsHandler (WS integration)", () => {
     expect(err!.message).toContain("設定を反映しています");
     expect(opencode.session.create).not.toHaveBeenCalled();
     expect(opencode.session.promptAsync).not.toHaveBeenCalled();
+  });
+
+  it("question.asked イベントを受けると editor に question メッセージを転送する", async () => {
+    let push: ((ev: unknown) => void) | undefined;
+    const opencode = createFakeOpencode(
+      {
+        onReady: (pusher) => {
+          push = pusher;
+        },
+      },
+      { sessionId: "ses_Q1" }
+    );
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    const messages: unknown[] = [];
+    ws.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    // chat で session を確立 (sessionId がセットされないと handleEvent が走らない)
+    ws.send(JSON.stringify({ type: "chat", message: "画面が真っ黒" }));
+    await new Promise((r) => setTimeout(r, 100));
+
+    push!({
+      type: "question.asked",
+      properties: {
+        id: "que_ABC",
+        sessionID: "ses_Q1",
+        questions: [
+          {
+            question: "背景画像をどうしますか？",
+            header: "背景画像",
+            options: [
+              { label: "AIで生成", description: "自動で作る" },
+              { label: "今はやめる", description: "後で決める" },
+            ],
+          },
+        ],
+      },
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    ws.close();
+
+    const q = messages.find(
+      (m): m is { type: string; requestId: string; questions: unknown[] } =>
+        typeof m === "object" &&
+        m !== null &&
+        (m as { type: string }).type === "question"
+    );
+    expect(q).toBeDefined();
+    expect(q!.requestId).toBe("que_ABC");
+    expect(q!.questions).toHaveLength(1);
+  });
+
+  it("answer メッセージで /question/{id}/reply に POST する", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const opencode = createFakeOpencode();
+    started = await startServer(opencode, 30000);
+
+    const ws = new NodeWs(`ws://127.0.0.1:${started.port}/ws`);
+    await new Promise<void>((r) => ws.on("open", () => r()));
+
+    ws.send(
+      JSON.stringify({
+        type: "answer",
+        requestId: "que_XYZ",
+        answers: [["AIで生成"]],
+      })
+    );
+    await new Promise((r) => setTimeout(r, 150));
+    ws.close();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://opencode.test/question/que_XYZ/reply");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      answers: [["AIで生成"]],
+    });
+
+    vi.unstubAllGlobals();
   });
 
   it("isRestarting=true で undo / deploy / revert もブロックされる", async () => {

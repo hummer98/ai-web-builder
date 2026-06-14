@@ -63,6 +63,28 @@ npm run dev     # 4プロセス並列起動
 
 初回起動後、editor の歯車アイコンから設定画面を開いて OpenRouter / Cloudflare / Firebase / Gemini のキーを登録する（BYOK）。OpenRouter キー未登録の状態ではチャット入力が disabled になり、SettingsDialog が自動で開く。
 
+## 開発ワークフロー (worktree 必須)
+
+**新しい作業は基本的に git worktree 上で行う。** `main` の作業ツリーで直接編集しない。
+
+理由: 複数の作業を `main` の作業ツリーで並行して進めると、未コミットファイルが混在し「どれが今回の変更か」が判別できなくなる（過去に実際に混乱が発生）。worktree なら作業単位が物理的に隔離され、変更の切り出し・コミット・破棄が安全になる。
+
+```bash
+# 作業開始: タスクごとに worktree を切る
+git worktree add ../ai-web-builder-<task> -b <task-branch>
+cd ../ai-web-builder-<task>
+npm install          # worktree ごとに node_modules が要る
+
+# 作業 → テスト → コミット は worktree 内で完結させる
+# 終わったら掃除
+git worktree remove ../ai-web-builder-<task>
+```
+
+- 1 タスク = 1 worktree = 1 ブランチ。タスクをまたいで同じ作業ツリーを使い回さない。
+- `main` の作業ツリーは「最後にデプロイした状態の確認」用にクリーンに保つ。
+- 例外: タイポ修正やドキュメントの 1 行修正など、即コミットできる軽微な変更は `main` で直接行ってよい。
+- デプロイ (`flyctl deploy`) は **作業ツリーから Docker ビルド**される。デプロイ前に作業ツリーに無関係な未コミット変更が混ざっていないか確認する。
+
 ## ログ
 
 ### ローカル開発

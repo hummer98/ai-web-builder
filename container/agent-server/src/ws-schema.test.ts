@@ -191,6 +191,44 @@ describe("parseWsMessage", () => {
     });
   });
 
+  describe("answer", () => {
+    it("accepts single-question single-select answer", () => {
+      const r = parseWsMessage({
+        type: "answer",
+        requestId: "que_ABC",
+        answers: [["AIで生成"]],
+      });
+      expect(r.ok).toBe(true);
+    });
+
+    it("accepts multi-question / multi-select answer", () => {
+      const r = parseWsMessage({
+        type: "answer",
+        requestId: "que_ABC",
+        answers: [["A", "B"], ["C"]],
+      });
+      expect(r.ok).toBe(true);
+    });
+
+    it("rejects empty requestId", () => {
+      const r = parseWsMessage({
+        type: "answer",
+        requestId: "",
+        answers: [["x"]],
+      });
+      expect(r.ok).toBe(false);
+    });
+
+    it("rejects non-array answers", () => {
+      const r = parseWsMessage({
+        type: "answer",
+        requestId: "que_ABC",
+        answers: "AIで生成",
+      });
+      expect(r.ok).toBe(false);
+    });
+  });
+
   describe("invalid", () => {
     it("rejects unknown type", () => {
       const r = parseWsMessage({ type: "foo" });
