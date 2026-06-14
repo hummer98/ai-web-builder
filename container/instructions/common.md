@@ -8,6 +8,7 @@
 
 - React 19 + Tailwind CSS v4 (`@import "tailwindcss"`)
 - React Router v7（SPA ルーティング）。import は必ず `react-router` パッケージから行う。`react-router-dom` は**使わない**（`BrowserRouter` `Routes` `Route` `Link` `Outlet` `useLocation` `useNavigate` 等すべて `react-router` からエクスポートされる）
+- **`BrowserRouter` は `main.tsx` の既存のもの（`basename={import.meta.env.BASE_URL}` 付き）をそのまま使う。`App.tsx` など別の場所で `BrowserRouter` を作り直さない**（ルート定義は `App.tsx` の `<Routes>` で行う）。プレビューは `/preview/` サブパスで配信されるため、`basename` を欠いた `BrowserRouter` を置くと現在の URL がどの `<Route>` にもマッチせず**画面が真っ黒**になる（本番は base=`/` なので一見動くが、エディタのプレビューで壊れる）。やむを得ず別途 `BrowserRouter` を使う場合も必ず `basename={import.meta.env.BASE_URL}` を付けること
 - Vite Dev Server（HMR 自動反映）
 - Hono（バックエンド API、/api/* にプロキシ）
 
