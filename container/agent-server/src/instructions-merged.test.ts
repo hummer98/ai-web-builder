@@ -9,7 +9,7 @@ const SCAFFOLD_AGENTS_MD = resolve(REPO_ROOT, "container/scaffold/AGENTS.md");
 describe("scaffold/AGENTS.md + instructions/common.md 結合", () => {
   const REQUIRED_KEYWORDS = [
     // 共通側（MCP 検証）
-    "browser_screenshot",
+    "browser_take_screenshot",
     "browser_console_messages",
     "read_log",
     // 共通側（レスポンシブ）

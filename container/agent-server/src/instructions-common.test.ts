@@ -12,7 +12,7 @@ describe("container/instructions/common.md", () => {
 
   describe("必須キーワードを含む", () => {
     const required = [
-      "browser_screenshot",
+      "browser_take_screenshot",
       "browser_console_messages",
       "read_log",
       "375px",
