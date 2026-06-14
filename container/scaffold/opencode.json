@@ -13,7 +13,9 @@
       "command": [
         "npx",
         "@playwright/mcp",
-        "--headless"
+        "--headless",
+        "--browser",
+        "chromium"
       ]
     },
     "log-reader": {

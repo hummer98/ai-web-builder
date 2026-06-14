@@ -62,4 +62,16 @@ describe("container/scaffold/opencode.json", () => {
     expect(cmd).not.toContain("--url");
     expect(cmd.slice(0, 3)).toEqual(["npx", "@playwright/mcp", "--headless"]);
   });
+
+  it("playwright command が --browser chromium を指定する（bundled chromium を使う）", () => {
+    // @playwright/mcp のデフォルトは chrome channel (/opt/google/chrome/chrome) を探すが、
+    // Dockerfile は `playwright install chromium`（bundled chromium）のみ入れているため
+    // chrome 不在で `Chromium distribution 'chrome' is not found` になる。
+    // --browser chromium で PLAYWRIGHT_BROWSERS_PATH 配下の bundled chromium を使わせる。
+    const d = load();
+    const cmd: string[] = d.mcp.playwright.command;
+    const i = cmd.indexOf("--browser");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(cmd[i + 1]).toBe("chromium");
+  });
 });
