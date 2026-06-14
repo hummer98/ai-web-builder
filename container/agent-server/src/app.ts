@@ -270,14 +270,39 @@ export function createApp(opts: CreateAppOpts = {}) {
       path.startsWith("/preview") ||
       path.startsWith("/uploads");
 
+    // 拡張子付き = アセットとみなす（SPA ルート /concept 等は除外）
+    const looksLikeAsset = (path: string): boolean =>
+      /\.[a-zA-Z0-9]+$/.test(path);
+
     app.use("/*", async (c, next) => {
       if (isReservedPath(c.req.path)) return next();
       const mw = serveStatic({ root: "../../editor/dist" });
       return mw(c, next);
     });
-    // SPA フォールバック（同じ除外条件）
+    // ゲストサイトの CSS/HTML がルート絶対パス (例: url('/entrance.jpg')) で
+    // 参照したアセットは、Vite の base=/preview/ を経由せずドメイン直下へ届くため
+    // editor/dist には存在しない。拡張子付きパスはゲストアセットとみなして
+    // Vite (/preview 配下) にフォールバックする。本番デプロイは base=/ のため
+    // この問題は起きず、これはプレビュー専用の救済である。
     app.get("/*", async (c, next) => {
       if (isReservedPath(c.req.path)) return next();
+      if (looksLikeAsset(c.req.path)) {
+        try {
+          const resp = await fetch(`${VITE_URL}/preview${c.req.path}`, {
+            method: "GET",
+            headers: c.req.raw.headers,
+          });
+          if (resp.ok) {
+            return new Response(resp.body, {
+              status: resp.status,
+              headers: resp.headers,
+            });
+          }
+        } catch {
+          // Vite 未起動時などは SPA フォールバックに流す
+        }
+      }
+      // SPA フォールバック（同じ除外条件）
       const mw = serveStatic({ root: "../../editor/dist", path: "index.html" });
       return mw(c, next);
     });

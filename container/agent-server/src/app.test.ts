@@ -63,6 +63,7 @@ describe("app HTTP routes", () => {
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.resetModules();
   });
 
@@ -320,6 +321,70 @@ describe("app HTTP routes", () => {
       const res = await app.request("/uploads/missing.png");
       expect(res.status).toBe(404);
       expect(res.headers.get("content-type") ?? "").not.toMatch(/text\/html/);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // ゲストアセットの /preview フォールバック (production)
+  // ゲスト CSS の url('/entrance.jpg') 等、ルート絶対パスのアセットは
+  // base=/preview/ を経由せずドメイン直下へ届く。editor/dist に無ければ
+  // Vite (/preview 配下) へフォールバックして配信する。
+  // -------------------------------------------------------------------------
+  describe("guest asset fallback to preview (production)", () => {
+    it("falls back to Vite /preview for root-absolute guest assets missing from editor/dist", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("VITE_URL", "http://vite.test");
+      vi.resetModules();
+
+      const fetchSpy = vi.fn(
+        async () =>
+          new Response("JPEGBYTES", {
+            status: 200,
+            headers: { "content-type": "image/jpeg" },
+          })
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const app = await getApp();
+      const res = await app.request("/entrance.jpg");
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        "http://vite.test/preview/entrance.jpg"
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/jpeg");
+    });
+
+    it("does not fetch preview for SPA (extension-less) routes", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.resetModules();
+
+      const fetchSpy = vi.fn(async () => new Response("x", { status: 200 }));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const app = await getApp();
+      await app.request("/concept");
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("falls through to SPA fallback when preview asset is 404", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.resetModules();
+
+      const fetchSpy = vi.fn(
+        async () => new Response("not found", { status: 404 })
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const app = await getApp();
+      const res = await app.request("/missing-guest-asset.jpg");
+      const body = await res.text();
+
+      // preview を試したが 404 → その body をそのまま返さず SPA フォールバックへ
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(body).not.toBe("not found");
     });
   });
 
