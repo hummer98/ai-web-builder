@@ -85,6 +85,31 @@ npm run dev     # 4プロセス並列起動
 
 - `/app/logs/` は Machine 再起動 / autostop 起動で **消える**（root FS は ephemeral）。過去ログが必要な場合は `flyctl logs` から検索する
 
+### opencode の動作を追う（本番デバッグ）
+
+「opencode が実際に何をしたか（どのツールを呼び、編集が成功したか）」を調べる手順。`/app/logs/opencode.log` は **起動バナーと警告しか出ない**（ツール呼び出しは記録されない）ので注意。本体は HTTP API と SQLite にある。
+
+| 参照先 | 何が分かるか |
+|---|---|
+| `/app/logs/agent-server.log` (JSON Lines) | セッションのライフサイクル: `OpenCode session created` / `promptAsync sent` / `OpenCode response completed` / `Auto-committed`(hash+message) / `Auto-pushed`。「いつ応答が返り何をコミットしたか」 |
+| `/app/logs/chat-handler.log` | プロンプト送信と inactivity タイムアウトの制御ログ |
+| **opencode HTTP API `:4096`** | **ツール実行トレースの本体**。下記参照 |
+| `/home/app/.local/share/opencode/opencode.db` (+`-wal`) | opencode の全セッション/メッセージの永続ストア (SQLite)。`log/` サブディレクトリも |
+
+opencode のツール呼び出しと結果（最重要）はコンテナ内から API で取る:
+
+```bash
+flyctl ssh console -a ai-web-builder
+# セッション一覧 (id / title)
+curl -s http://localhost:4096/session | jq '.[] | {id, title}'
+# 特定セッションの全メッセージ = read/edit/bash 等のツール呼び出し + 結果 (status, output, diff)
+curl -s http://localhost:4096/session/<session-id>/message | jq .
+```
+
+`message` のレスポンスに各ツールの `state.status`(`completed`/`error`)、`output`(例: `Edit applied successfully.`)、`input`(編集の oldString/newString)、`diff` が入る。「編集が成功したのにファイルが変わっていない／白画面が治らない」系は、ここで edit が `completed` かを確認 → vite ログ (`/app/logs/vite.log`) で HMR 更新が走ったかを照合する。
+
+注意: autostop で Machine が寝ると ssh / curl が空振りする。直前に `curl -s -m 60 https://ai-web-builder.fly.dev/health`(200 を確認) で起こしてから ssh すること。
+
 ### TODO (今回は非対応)
 
 - `/app/logs` を Fly Volume にマウントして永続化する
