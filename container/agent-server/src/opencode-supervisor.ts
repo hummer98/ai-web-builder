@@ -1,8 +1,11 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, type WriteStream } from "node:fs";
 import { connect } from "node:net";
+import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { createLogger } from "./logger.js";
+// プレーンテキストの opencode 出力を JSON Lines に整形する共有ヘルパ (vite/hono と共用)。
+import { toJsonl } from "../../log-format.mjs";
 import { broadcastSystem } from "./ws-clients.js";
 
 const execFileAsync = promisify(execFile);
@@ -100,6 +103,12 @@ async function runPostprocess(): Promise<void> {
  *
  * BYOK 必須化のため、ホスト側 env (Fly Secrets / direnv) からの継承を遮断する。
  * postprocess が opencode.json に実値を書き込んでいる前提で、env 経由の fallback を全て塞ぐ。
+ *
+ * さらに NODE_ENV を development に固定する。agent-server は本番認証のため
+ * NODE_ENV=production で起動するが、その値が opencode child → ゲストの
+ * `npm install` に継承されると devDependencies (@types/react / vite / typescript)
+ * が入らずビルドが壊れる (本番「白画面」障害の真因)。ゲストのビルド環境は常に
+ * development であるべきなので、ここで上書きする (vite/hono も development で起動)。
  */
 export function buildSanitizedEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
@@ -107,6 +116,7 @@ export function buildSanitizedEnv(): NodeJS.ProcessEnv {
   delete env.GEMINI_API_KEY;
   delete env.ANTHROPIC_API_KEY;
   delete env.OPENAI_API_KEY;
+  env.NODE_ENV = "development";
   return env;
 }
 
@@ -124,23 +134,50 @@ function spawnChild(): ChildProcess {
       stdio: ["ignore", "pipe", "pipe"],
     }
   );
-  // ログ tee — 失敗しても supervisor 自体を落とさない
+  // opencode のプレーンテキスト出力を JSON Lines ({ts,level,service:"opencode",msg})
+  // に整形して opencode.log と Fly stdout の両方へ流す。
+  // ・1 サービス = 1 ファイルを保つ (agent-server.log を汚染しない)
+  // ・全行 JSON Lines に揃え、log-reader MCP の read_log(level) フィルタを効かせる
+  // 失敗しても supervisor 自体を落とさない。
   try {
     const logStream = createWriteStream(`${logsDir}/opencode.log`, { flags: "a" });
     logStream.on("error", (e) => {
       log.warn("opencode log write failed", { error: String(e) });
     });
-    c.stdout?.pipe(logStream);
-    c.stderr?.pipe(logStream);
+    pipeAsJsonl(c.stdout, "info", logStream);
+    pipeAsJsonl(c.stderr, "warn", logStream);
   } catch (e) {
     log.warn("opencode log stream init failed", { error: String(e) });
   }
-  c.stdout?.pipe(process.stdout);
-  c.stderr?.pipe(process.stderr);
   c.on("exit", (code, signal) => {
     log.info("opencode child exited", { code, signal });
   });
   return c;
+}
+
+/**
+ * opencode child の stdout/stderr を 1 行ずつ JSON Lines に整形し、
+ * opencode.log (ファイル) と process.stdout (Fly stdout) の両方へ書く。
+ * agent-server 自身の stdout を経由するが、agent-server.log は logger の
+ * appendFileSync が別途書くため、ここで混入することはない。
+ */
+function pipeAsJsonl(
+  src: NodeJS.ReadableStream | null | undefined,
+  defaultLevel: "info" | "warn",
+  logStream: WriteStream
+): void {
+  if (!src) return;
+  const rl = createInterface({ input: src, crlfDelay: Infinity });
+  rl.on("line", (raw) => {
+    const line = toJsonl("opencode", raw, defaultLevel);
+    if (line === null) return;
+    try {
+      logStream.write(line + "\n");
+    } catch {
+      // 書き込み失敗は無視 (supervisor を落とさない)
+    }
+    process.stdout.write(line + "\n");
+  });
 }
 
 async function waitForReady(): Promise<void> {

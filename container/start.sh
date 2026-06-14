@@ -144,15 +144,25 @@ node /app/container/opencode-postprocess.mjs \
 rm -rf "$WORKSPACE_DIR/node_modules/.vite" 2>/dev/null || true
 
 # Vite Dev Server (ゲストサイト) — development モードで起動、base=/preview/
-# stdout/stderr を Fly stdout と $LOGS_DIR/vite.log の両方に流す
-(cd "$WORKSPACE_DIR" && NODE_ENV=development VITE_BASE_PATH=/preview/ npx vite --host 0.0.0.0 --port 5173 2>&1 | tee -a "$LOGS_DIR/vite.log") &
+# プレーンテキスト出力を jsonl-wrap.mjs で JSON Lines ({ts,level,service,msg}) に
+# 整形してから Fly stdout と $LOGS_DIR/vite.log の両方に流す。
+# これで log-reader MCP の read_log(service="vite", level=...) がレベル別に引ける。
+(cd "$WORKSPACE_DIR" && NODE_ENV=development VITE_BASE_PATH=/preview/ npx vite --host 0.0.0.0 --port 5173 2>&1 | node /app/container/jsonl-wrap.mjs vite | tee -a "$LOGS_DIR/vite.log") &
 
-# Hono Dev Server (バックエンド API)
-# stdout/stderr を Fly stdout と $LOGS_DIR/hono.log の両方に流す
-(cd "$WORKSPACE_DIR" && npx tsx watch functions/api/index.ts 2>&1 | tee -a "$LOGS_DIR/hono.log") &
+# Hono Dev Server (バックエンド API) — 同様に JSON Lines 化してから流す
+(cd "$WORKSPACE_DIR" && npx tsx watch functions/api/index.ts 2>&1 | node /app/container/jsonl-wrap.mjs hono | tee -a "$LOGS_DIR/hono.log") &
 
 # OpenCode serve は agent-server の supervisor が起動・監視するため start.sh では起動しない。
 # (BYOK でキー更新時に再起動する必要があるため、child reference を agent-server が保持する)
 
 # Agent Server (メインプロセス — フォアグラウンド)
-cd /app/container/agent-server && exec npx tsx src/index.ts 2>&1 | tee -a "$LOGS_DIR/agent-server.log"
+# NODE_ENV=production はこのプロセスにだけ付与する (本番認証の有効化用)。
+# コンテナ全体には焼かない (Dockerfile から ENV NODE_ENV=production を撤去済み)。
+# opencode child へは supervisor の buildSanitizedEnv() が NODE_ENV=development に
+# 上書きして渡すため、ゲストの npm install に production が漏れない。
+#
+# tee は付けない。agent-server.log は logger.ts の appendFileSync が JSON Lines を
+# 直接書く。tee を噛ませると (1) 同じ行がファイルに二重に書かれ、(2) supervisor が
+# Fly stdout へ転送する opencode のプレーンテキストまで agent-server.log に混入し、
+# read_log/jq でのパースが壊れる。stdout は exec でそのまま Fly に渡す。
+cd /app/container/agent-server && NODE_ENV=production exec npx tsx src/index.ts 2>&1

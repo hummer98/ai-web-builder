@@ -49,6 +49,11 @@ COPY container/instructions/ container/instructions/
 COPY container/opencode-postprocess.mjs container/opencode-postprocess.mjs
 COPY container/secrets-reader.mjs container/secrets-reader.mjs
 
+# ログ JSON Lines 整形（jsonl-wrap.mjs は start.sh の vite/hono パイプ、
+# log-format.mjs は jsonl-wrap.mjs と opencode-supervisor.ts が共用）
+COPY container/log-format.mjs container/log-format.mjs
+COPY container/jsonl-wrap.mjs container/jsonl-wrap.mjs
+
 # Scaffold の依存を事前インストール（新規サイト作成時にコピーされる）
 COPY container/scaffold/ container/scaffold/
 RUN cd container/scaffold && npm install
@@ -65,7 +70,13 @@ EXPOSE 8080
 
 # workspace は Fly Volume にマウントされる (/data/workspace)
 ENV WORKSPACE_DIR=/data/workspace
-ENV NODE_ENV=production
+
+# NODE_ENV=production はコンテナ全体に焼かない。
+# 焼くと opencode が spawn するゲストの `npm install` にも継承され、
+# devDependencies (@types/react / vite / typescript) が入らずビルドが壊れる
+# (本番「白画面」障害の真因)。production は agent-server の本番認証だけに必要なので、
+# start.sh で agent-server 起動行にのみ NODE_ENV=production を付与する
+# (vite/hono を NODE_ENV=development で起動しているのと対称)。
 
 # サイト設定は Fly Secret SITES_JSON 経由で読み込む (start.sh 内で展開)
 

@@ -170,6 +170,20 @@ describe("buildSanitizedEnv", () => {
     expect(env.PATH).toBe(process.env.PATH);
   });
 
+  it("NODE_ENV を development に固定する (ゲスト npm install に production を漏らさない)", () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const env = buildSanitizedEnv();
+      // agent-server が production で起動していても、opencode child へは development を渡す。
+      // devDependencies が入らずビルドが壊れる「白画面」障害の再発防止。
+      expect(env.NODE_ENV).toBe("development");
+    } finally {
+      if (prev === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prev;
+    }
+  });
+
   it("シリアライズしても decoy 値が一切現れない", () => {
     const env = buildSanitizedEnv();
     const serialized = JSON.stringify(env);

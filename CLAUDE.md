@@ -72,10 +72,12 @@ npm run dev     # 4プロセス並列起動
 
 ### 本番 (Fly.io)
 
-- `container/start.sh` で 4 プロセスすべての stdout/stderr を `/app/logs/*.log` と Fly stdout の両方に流している (`tee -a`)
-- `flyctl logs -a ai-web-builder` で 4 プロセスが **混在** で流れる
-  - agent-server 行は JSON Lines (`service` フィールドで識別可能)
-  - opencode / vite / hono 行はプレーンテキスト（プレフィックスは付与していない）
+- 4 プロセスすべての出力が `/app/logs/<service>.log` と Fly stdout の両方に流れる。**全プロセス JSON Lines** (`ts`, `level`, `service`, `msg`) に統一済み:
+  - agent-server: `logger.ts` の `appendFileSync` がファイルへ直接 JSON Lines を書く。`start.sh` では **tee を噛ませない**（二重書き＋opencode 出力の混入を防ぐため。stdout はそのまま Fly へ）
+  - vite / hono: `start.sh` で `node /app/container/jsonl-wrap.mjs <service>` にパイプして JSON Lines 化してから tee
+  - opencode: `opencode-supervisor.ts` が child の stdout/stderr を 1 行ずつ JSON Lines に整形して `opencode.log` と Fly stdout へ流す
+- これにより log-reader MCP の `read_log(service, level)` が **全サービスでサービス別 × レベル別**に引ける（AI が必要なセクションをオンデマンドで取得できる）
+- `flyctl logs -a ai-web-builder` では 4 プロセスが **混在**で流れる（全行 JSON、`service` フィールドで識別）
 - ログファイルを直接見たい場合:
 
     ```bash
@@ -93,10 +95,17 @@ npm run dev     # 4プロセス並列起動
 |---|---|
 | `/app/logs/agent-server.log` (JSON Lines) | セッションのライフサイクル: `OpenCode session created` / `promptAsync sent` / `OpenCode response completed` / `Auto-committed`(hash+message) / `Auto-pushed`。「いつ応答が返り何をコミットしたか」 |
 | `/app/logs/chat-handler.log` | プロンプト送信と inactivity タイムアウトの制御ログ |
-| **opencode HTTP API `:4096`** | **ツール実行トレースの本体**。下記参照 |
+| **log-reader MCP `list_opencode_sessions` / `read_opencode_session`** | **AI 向けの session 軸取得口**。下記 API を MCP からノイズなく引ける（推奨） |
+| **opencode HTTP API `:4096`** | ツール実行トレースの本体（人手 / curl での確認用）。下記参照 |
 | `/home/app/.local/share/opencode/opencode.db` (+`-wal`) | opencode の全セッション/メッセージの永続ストア (SQLite)。`log/` サブディレクトリも |
 
-opencode のツール呼び出しと結果（最重要）はコンテナ内から API で取る:
+opencode のツール呼び出しと結果（最重要）の取得には2経路ある:
+
+**(a) log-reader MCP（AI がオンデマンドで引く・推奨）** — `:4096` を内部で叩いて要約を返す。curl の生 JSON や DEBUG ノイズに悩まされない:
+- `list_opencode_sessions` → `id\ttitle` 一覧
+- `read_opencode_session({ sessionId, tail })` → 各ツールの `[status] tool 入力 → 出力 / ERROR` を末尾 N 件
+
+**(b) コンテナ内から API を直叩き（人手デバッグ）:**
 
 ```bash
 flyctl ssh console -a ai-web-builder
@@ -114,8 +123,6 @@ curl -s http://localhost:4096/session/<session-id>/message | jq .
 
 - `/app/logs` を Fly Volume にマウントして永続化する
 - `logrotate` で肥大化を防ぐ
-- opencode / vite / hono の出力を JSON Lines に揃え、`service` フィールドでフィルタ可能にする
-- プロセス名プレフィックスの付与 (`[opencode]` 等) で `flyctl logs` を読みやすくする
 
 ## AI フィードバックループ (必須)
 

@@ -1,7 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { SERVICES, readLog, searchLog, listLogs } from "./handlers.js";
+import {
+  SERVICES,
+  readLog,
+  searchLog,
+  listLogs,
+  listOpencodeSessions,
+  readOpencodeSession,
+} from "./handlers.js";
 
 const server = new McpServer({
   name: "log-reader",
@@ -48,6 +55,28 @@ server.tool(
  * list_logs: 利用可能なログファイル一覧
  */
 server.tool("list_logs", {}, async () => listLogs());
+
+/**
+ * list_opencode_sessions: opencode の全セッション (id / title) を一覧する。
+ * ファイルログには無い「opencode が実際に何をしたか」を session 軸で辿る入口。
+ */
+server.tool("list_opencode_sessions", {}, async () => listOpencodeSessions());
+
+/**
+ * read_opencode_session: 1セッションのツール呼び出しトレース (status/入力/出力/エラー)
+ * を要約して返す。read/edit/bash 等が completed か error かをここで確認できる。
+ */
+server.tool(
+  "read_opencode_session",
+  {
+    sessionId: z.string().describe("opencode のセッション ID"),
+    tail: z
+      .number()
+      .default(50)
+      .describe("末尾から何件のツール呼び出しを返すか"),
+  },
+  async ({ sessionId, tail }) => readOpencodeSession({ sessionId, tail })
+);
 
 // Start server
 const transport = new StdioServerTransport();
