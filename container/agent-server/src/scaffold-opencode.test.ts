@@ -52,4 +52,14 @@ describe("container/scaffold/opencode.json", () => {
     expect(d.mcp["log-reader"]).toBeDefined();
     expect(d.mcp["nano-banana"]).toBeDefined();
   });
+
+  it("playwright command に無効な --url オプションを渡さない（@playwright/mcp は --url を持たない）", () => {
+    // @playwright/mcp の CLI に --url は存在せず、渡すと `error: unknown option '--url'` で
+    // 起動失敗し、視覚検証ツール（browser_*）が一切登録されなくなる。
+    // 起動 URL は CLI では渡せないため、エージェントが browser_navigate で開く前提。
+    const d = load();
+    const cmd: string[] = d.mcp.playwright.command;
+    expect(cmd).not.toContain("--url");
+    expect(cmd.slice(0, 3)).toEqual(["npx", "@playwright/mcp", "--headless"]);
+  });
 });

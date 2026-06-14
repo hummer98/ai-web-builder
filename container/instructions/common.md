@@ -103,9 +103,10 @@ functions/
 
 すべてのコード編集後、ユーザーに応答する前に:
 
-1. `browser_screenshot` でスクリーンショットを撮り、白画面・レイアウト崩れがないか確認
-2. `browser_console_messages` で JavaScript エラーがないか確認
-3. `read_log` で vite と hono のエラーログを確認
+1. `browser_navigate` で `http://localhost:5173/` を開く（編集結果を反映するため毎回ナビゲートする）
+2. `browser_take_screenshot` でスクリーンショットを撮り、白画面・レイアウト崩れがないか確認
+3. `browser_console_messages` で JavaScript エラーがないか確認
+4. `read_log` で vite と hono のエラーログを確認
 
 エラーがあれば修正して再検証。最大3回リトライ。解決しない場合はユーザーに報告。
 
@@ -118,7 +119,7 @@ functions/
 - 画像は `w-full` を基本、大画面で `md:w-1/2` に制限
 - フォントサイズは `text-base` 以上
 
-検証時は 375px（モバイル）と 1280px（デスクトップ）の両方でスクリーンショットを確認。
+検証時は `browser_resize` で 375px（モバイル）と 1280px（デスクトップ）の両方にしてスクリーンショットを確認。
 
 ## アクセシビリティ
 
