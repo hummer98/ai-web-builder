@@ -10,7 +10,7 @@
 
 ---
 
-## 1. USER 変更 (root → app などの非 root 化)
+## 1. USER / Volume 所有権 (root→app 降格パターンで自己修復)
 
 ### 過去事故
 
@@ -18,32 +18,36 @@
 - 既存 Fly Volume `/data` が過去 root 所有のまま残っていた
 - `start.sh` の `node_modules` 同期で `rm -rf` が Permission denied → restart loop → 死亡
 - ユーザーが `editor.le-serpent.club` にアクセスできず、復旧に時間を要した (2026-05-03)
+- その後も Volume に UID≠1001 のファイルが混ざるたびに restart loop で再発
+  (autostop 起き上がり時など)。手動 2 段階リカバリ (`RUN_AS_USER=root` deploy →
+  通常 deploy) が必要で運用負荷が高かった
 
-### 必須手順
+### 現在の方式 (2026-06-15〜) — 起動時に自己修復
 
-USER を変更する deploy には **Volume の所有権マイグレーション** を伴うこと:
+`Dockerfile` から `USER app` を撤去し、**コンテナを root で起動**するように変更。
+`start.sh` 冒頭で:
 
-```bash
-# 1. リカバリ deploy (一時的に root 起動して chown だけ走らせる)
-flyctl deploy --build-arg RUN_AS_USER=root -a ai-web-builder
+1. `id -u == 0` (root) なら `chown -R 1001:1001 /data` で所有権を**毎回強制修復**
+   (root なので確実に成功する)
+2. `export HOME=/home/app` して `exec gosu app "$0"` で **app(UID 1001) に降格**して
+   本体を起動 (vite / hono / agent-server はすべて app として動く)
 
-# 2. ログで "Recovery chown complete" を確認
-flyctl logs -a ai-web-builder --no-tail | grep -E "Recovery|chown"
+これにより Volume の所有権ずれは**起動のたびに自動回復**し、**手動リカバリは不要**。
+`RUN_AS_USER` build-arg とリカバリモード (最小 HTTP で待機する分岐) は廃止した。
 
-# 3. ssh で所有権を確認 (任意)
-flyctl ssh console -a ai-web-builder --user root -C 'find /data/workspace -not -uid 1001 -type f | head'
+### 残っている安全網
 
-# 4. 通常 deploy で USER app に戻す
-flyctl deploy --remote-only -a ai-web-builder
-```
+- `start.sh` は降格後に `find -not -uid 1001` を一度チェックし、それでも 1001 以外が
+  残っていれば (= chown が効かない異常) fail-fast して `flyctl ssh console` を案内
+- node_modules は scaffold image へのシンボリックリンクなので、そもそも Volume 内に
+  実体が無く所有権問題が起きにくい (二重の防御)
 
-### 自己修復ガード (実装済み)
+### USER / 起動方式を再度変えるときの注意
 
-- `start.sh` 冒頭で `find -not -uid 1001` し、見つかれば fail-fast でリカバリ手順を表示
-- `start.sh` の root 起動分岐 (`id -u == 0`) は chown だけ走らせ、`vite/hono/opencode` は
-  起動しない (ヘルスチェック用に :8080 最小 HTTP のみ)
-- node_modules は scaffold image へのシンボリックリンクなので、Volume 内に node_modules
-  実体が無ければ所有権問題は発生しない
+- root→drop をやめて再び固定 USER にする場合は、上記の自己修復が消えるので、
+  Volume 所有権を別途保証する手段 (initContainer 相当 / 手動 chown) を用意すること
+- `gosu` はベースイメージ (`node:22-slim`) に `apt-get install gosu` で導入済み。
+  base image を alpine 等に変える場合は `su-exec` 等への置換が必要
 
 ---
 

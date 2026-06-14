@@ -4,13 +4,25 @@ set -e
 WORKSPACE_DIR="${WORKSPACE_DIR:-/data/workspace}"
 LOGS_DIR="/app/logs"
 
-# Fly Volume /data の owner を app (UID 1001) に揃える防御策。
-# 非 root の USER app では失敗するが無害 (root 起動時のみ効く)。
-# 既存 Volume を非 root 化したときは summary.md の手順に従って一時 Machine から chown すること。
-if [ -d /data ]; then
-  chown -R 1001:1001 /data 2>/dev/null || true
+# --- Fly Volume 所有権の自己修復 (root → app 降格パターン) ---
+# コンテナは root で起動する。Fly Volume /data はデプロイ・再起動・autostop を
+# またいでファイル所有権がそのまま残るため、過去に root 等 (UID≠1001) が書いた
+# ファイルが 1 個でも混ざると、非 root 起動では chown も rm もできず起動不能に
+# なる (「fly がパーミッションで壊れる」障害の真因)。
+# そこで root のうちに /data を 1001 へ強制 chown して所有権を毎回自己修復し、
+# gosu で app(UID 1001) に降格してから本体を起動する。これで手動の 2 段階
+# リカバリ (RUN_AS_USER=root デプロイ) は不要になる。
+if [ "$(id -u)" -eq 0 ]; then
+  if [ -d /data ]; then
+    chown -R 1001:1001 /data 2>/dev/null || true
+  fi
+  # gosu は HOME を引き継がないため明示する (opencode 等が ~/.local/share を
+  # /root 配下に作らないよう /home/app を渡す)。
+  export HOME=/home/app
+  exec gosu app "$0" "$@"
 fi
 
+# ここから先は app (UID 1001) として実行される
 mkdir -p "$LOGS_DIR"
 
 echo "Starting AI Web Builder..."
@@ -75,11 +87,10 @@ SCAFFOLD_NODE_MODULES="/app/container/scaffold/node_modules"
 # 旧版互換 (実ディレクトリ → シンボリックリンクへの一回限りの移行)
 if [ -d "$WORKSPACE_DIR/node_modules" ] && [ ! -L "$WORKSPACE_DIR/node_modules" ]; then
   echo "Migrating node_modules from real dir to symlink..."
+  # 冒頭の root chown で app 所有になっているはずなので通常は成功する。
   if ! rm -rf "$WORKSPACE_DIR/node_modules" 2>/dev/null; then
-    echo "ERROR: cannot remove $WORKSPACE_DIR/node_modules (Permission denied)."
-    echo "       Likely root-owned files from a prior deploy. Recovery procedure:"
-    echo "         flyctl deploy --build-arg RUN_AS_USER=root -a ai-web-builder"
-    echo "       Wait for 'Recovery chown complete' in logs, then deploy again without --build-arg."
+    echo "ERROR: cannot remove $WORKSPACE_DIR/node_modules even after the boot chown."
+    echo "       Volume may be corrupt; inspect with: flyctl ssh console -a ai-web-builder"
     exit 1
   fi
 fi
@@ -94,27 +105,14 @@ fi
 # 既存ファイルが root 所有だと書き換え失敗するが致命的ではないので fail-soft。
 cp "$SCAFFOLD_LOCK" "$WORKSPACE_LOCK" 2>/dev/null || true
 
-# fail-fast チェック (A): workspace 内に UID 1001 以外の所有ファイルがあれば早期失敗
-# restart loop でログを汚す前にリカバリ手順を一度だけ示す。
+# 安全網: 冒頭の root chown が効いていれば workspace は全て UID 1001 のはず。
+# 万一 1001 以外が残っていれば異常 (chown 失敗等) なので早期に警告して止める。
 NON_APP_FILE=$(find "$WORKSPACE_DIR" -not -uid 1001 -print -quit 2>/dev/null || true)
 if [ -n "$NON_APP_FILE" ]; then
-  echo "ERROR: $WORKSPACE_DIR contains non-app-owned files (e.g. $NON_APP_FILE)."
-  echo "       Recovery procedure:"
-  echo "         flyctl deploy --build-arg RUN_AS_USER=root -a ai-web-builder"
-  echo "       Wait for 'Recovery chown complete' in logs, then deploy again without --build-arg."
+  echo "ERROR: $WORKSPACE_DIR contains non-app-owned files (e.g. $NON_APP_FILE)"
+  echo "       even after the root chown at boot. Volume may be corrupt;"
+  echo "       inspect with: flyctl ssh console -a ai-web-builder"
   exit 1
-fi
-
-# root 起動時 (Volume 所有権リカバリモード) は同期後も WORKSPACE_DIR の所有権を
-# 1001:1001 に統一しておく。次回 USER app 起動で rm -rf が失敗しないよう保険。
-if [ "$(id -u)" -eq 0 ] && [ -d "$WORKSPACE_DIR" ]; then
-  echo "Recovery mode: chowning $WORKSPACE_DIR to 1001:1001..."
-  chown -R 1001:1001 "$WORKSPACE_DIR"
-  echo "Recovery chown complete. Holding machine with minimal HTTP server (deploy without --build-arg to revert)."
-  # vite/hono/opencode を root で起動すると .vite/deps/ 等を root 所有で書き戻して
-  # しまうため、リカバリモードでは何も起動しない。Fly のヘルスチェック用に :8080
-  # で 200 を返す最小サーバーだけ立てておく (このプロセスは何も書き込まない)。
-  exec node -e 'require("http").createServer((_,r)=>{r.statusCode=200;r.end("recovery")}).listen(8080,"0.0.0.0",()=>console.log("recovery http on :8080"))'
 fi
 
 # scaffold の設定ファイルを常に最新に同期（ユーザーコンテンツ以外）
